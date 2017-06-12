@@ -56,6 +56,7 @@ products_fe["reorders"] = order_products__prior.\
     groupby("product_id").\
     size()
 
+# TODO : haha l'indicateur est pas bon du tout ici :D
 products_fe['reorder_rate'] = products_fe["reorders"] / products_fe["orders"]
 
 order_products__prior.head()
@@ -126,6 +127,19 @@ user_past_product = pd.merge(user_past_product, reordered_train[["user_id", "pro
 
 user_past_product["reordered"] = user_past_product["reordered"].fillna(0)
 
+### user_product
+print("User_product")
+
+users_products = order_products__prior.\
+    groupby(["user_id", "product_id"]).\
+    agg({'reordered' : {'nb_orders': "size"} ,\
+         'add_to_cart_order' : {'mean_add_to_cart_order': "mean"}})
+
+users_products.columns = users_products.columns.droplevel(0)
+users_products = users_products.reset_index()
+users_products.head()
+
+
 # Create dataset which we'll learn on -------------------------------------------------
 
 # TODO package this in a damn pipelinefor both train and test
@@ -138,6 +152,7 @@ df_train = pd.merge(df_train, products_fe, on="product_id")
 df_train = pd.merge(df_train, products, on="product_id")
 df_train = pd.merge(df_train, aisles, on="aisle_id")
 df_train = pd.merge(df_train, departments, on="department_id")
+df_train = pd.merge(df_train, users_products, on=["user_id", "product_id"])
 
 # Reordered column is present by useless obviously
 df_test = pd.merge(orders.query("eval_set == 'test'"), \
@@ -148,6 +163,7 @@ df_test = pd.merge(df_test, products_fe, on="product_id")
 df_test = pd.merge(df_test, products, on="product_id")
 df_test = pd.merge(df_test, aisles, on="aisle_id")
 df_test = pd.merge(df_test, departments, on="department_id")
+df_train = pd.merge(df_train, users_products, on=["user_id", "product_id"])
 
 # Modeling -----------------------
 to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name","department", "aisle"]
@@ -183,10 +199,15 @@ for row in df_test.itertuples():
         except:
             d[row.order_id] = str(row.product_id)
 
+for order in df_test.order_id:
+    if order not in d:
+        print(order)
+        d[order] = 'None'
+
 # All users in df_test had a previous order
 
 sub = pd.DataFrame.from_dict(d, orient='index')
 
 sub.reset_index(inplace=True)
 sub.columns = ['order_id', 'products']
-sub.to_csv('./ouput/sub.csv', index=False)
+sub.to_csv('./sub.csv', index=False)
