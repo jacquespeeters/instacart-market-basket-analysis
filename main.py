@@ -91,8 +91,16 @@ users_fe2 = order_products__prior.\
 users_fe2.columns = ["sum_basket", "mean_basket", "std_basket"]
 users_fe2 = users_fe2.reset_index()
 
+users_fe3 = order_products__prior.\
+    groupby("user_id")["reordered"].\
+    agg([np.mean]).\
+    reset_index()
+
+users_fe3.columns = ["user_id", "U_rt_reordered"]
+
 users_fe = pd.merge(users_fe, users_fe2, on="user_id")
-del users_fe2
+users_fe = pd.merge(users_fe, users_fe3, on="user_id")
+del users_fe2, users_fe3
 
 ### user_past_product
 print("user_past_product")
@@ -115,7 +123,7 @@ for i, row in user_past_product.iterrows():
 user_past_product = pd.DataFrame(rows, columns=user_past_product.columns)
 user_past_product.head()
 
-#TODO : Add None product if an order has no reordered in order_products__XXX
+#TODO : Add None (i.e 99999) product if an order has no reordered in order_products__XXX
 # rajouter le produit None si commande ne possède aucun reordered dans order_products__XXX
 
 reordered_train = pd.merge(orders, order_products__train, on=["order_id", "user_id"])
@@ -142,28 +150,22 @@ users_products.head()
 
 # Create dataset which we'll learn on -------------------------------------------------
 
-# TODO package this in a damn pipelinefor both train and test
-
-df_train = pd.merge(orders.query("eval_set == 'train'"), \
+def get_df(df):
+    df_set = pd.merge(df, \
                       user_past_product, on=["user_id"])
+    df_set = pd.merge(df_set, users_fe, on="user_id")
+    df_set = pd.merge(df_set, products_fe, on="product_id")
+    df_set = pd.merge(df_set, products, on="product_id")
+    df_set = pd.merge(df_set, aisles, on="aisle_id")
+    df_set = pd.merge(df_set, departments, on="department_id")
+    df_set = pd.merge(df_set, users_products, on=["user_id", "product_id"])
 
-df_train = pd.merge(df_train, users_fe, on="user_id")
-df_train = pd.merge(df_train, products_fe, on="product_id")
-df_train = pd.merge(df_train, products, on="product_id")
-df_train = pd.merge(df_train, aisles, on="aisle_id")
-df_train = pd.merge(df_train, departments, on="department_id")
-df_train = pd.merge(df_train, users_products, on=["user_id", "product_id"])
+    df_set["rt_orders"] =  df_set["nb_orders"] / df_set["order_number"]
 
-# Reordered column is present by useless obviously
-df_test = pd.merge(orders.query("eval_set == 'test'"), \
-                      user_past_product, on=["user_id"])
+    return df_set
 
-df_test = pd.merge(df_test, users_fe, on="user_id")
-df_test = pd.merge(df_test, products_fe, on="product_id")
-df_test = pd.merge(df_test, products, on="product_id")
-df_test = pd.merge(df_test, aisles, on="aisle_id")
-df_test = pd.merge(df_test, departments, on="department_id")
-df_train = pd.merge(df_train, users_products, on=["user_id", "product_id"])
+df_train = get_df(orders.query("eval_set == 'train'"))
+df_test = get_df(orders.query("eval_set == 'test'"))
 
 # Modeling -----------------------
 to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name","department", "aisle"]
@@ -172,6 +174,7 @@ X_train = df_train.drop(to_drop + ["reordered"], axis=1)
 X_test = df_test.drop(to_drop + ["reordered"], axis=1)
 y_train = df_train["reordered"]
 
+# TODO replace by default lightgbm app and not the sklearn API
 gbm = lgb.LGBMRegressor(objective='regression',
                         num_leaves=31,
                         learning_rate=0.05,
@@ -190,6 +193,26 @@ print('Predict and submit')
 df_test["reordered"] = model_gbm.predict(X_test)
 df_test.head()
 
+
+def precision_mean(x):
+    x["precision_mean"] = pd.expanding_mean(x["reordered"])
+    return x
+
+def recall_mean(x):
+    x["recall"] = pd.expanding_sum(x["reordered"]) / sum(x["reordered"])
+    return x
+
+# Test if possible to optimize F1 by estimating recall and precision given prediction
+
+#df_test[["user_id", "reordered"]].\
+#    sort(["reordered"]).\
+#    groupby("user_id").\
+#    apply(recall_mean)
+
+#df_test[["user_id", "reordered"]].\
+#    sort(["reordered"]).\
+#    groupby("user_id").apply(lambda x: pd.expanding_mean(x["reordered"]))
+
 TRESHOLD = 0.22 # guess, should be tuned with crossval on a subset of train data
 d = dict()
 for row in df_test.itertuples():
@@ -201,7 +224,6 @@ for row in df_test.itertuples():
 
 for order in df_test.order_id:
     if order not in d:
-        print(order)
         d[order] = 'None'
 
 # All users in df_test had a previous order
