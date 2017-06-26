@@ -23,7 +23,7 @@ print("Sample by user_id")
 user_id = orders["user_id"].unique()
 np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=1000, replace=False).tolist()
-orders = orders.query("user_id == @sample_user_id")
+#orders = orders.query("user_id == @sample_user_id")
 
 ###
 
@@ -57,19 +57,41 @@ products_fe["reorders"] = order_products__prior.\
     query("reordered == 1").\
     groupby("product_id").\
     size()
-# Set null size to 0
-products_fe["reorders"][products_fe["reorders"].isnull()] = 0
+
+products_fe.loc[products_fe["reorders"].isnull(),"reorders"] = 0 # Set null size to 0
 
 # TODO - from UP get reorder_ratio in order_number and days of each product which is equivalent to frequency
 
-# TODO : haha l'indicateur est pas bon du tout ici :D
-products_fe['reorder_rate'] = products_fe["reorders"] / products_fe["orders"]
+# TODO : indicateur mal calculé mais très discriminant
+products_fe['p_reorder_rate'] = products_fe["reorders"] / products_fe["orders"]
 
-products_fe["add_to_cart_order"] = order_products__prior.\
+products_fe["p_add_to_cart_order"] = order_products__prior.\
     groupby("product_id")["add_to_cart_order"].\
     mean()
 
 products_fe = products_fe.reset_index()
+
+product_freq = order_prior.copy()
+product_freq = product_freq.sort_values(["user_id", "product_id", "order_number"])
+
+
+product_freq["p_freq_days"] = product_freq["date"].shift() - product_freq["date"]
+product_freq["p_freq_order"] = product_freq["order_number"] - product_freq["order_number"].shift()
+product_freq = product_freq.query("reordered == 1")
+
+product_freq = product_freq.groupby("product_id").\
+    agg({'p_freq_days': {'p_freq_days': "mean"}, \
+         'p_freq_order': {'p_freq_order': "mean"}})
+
+product_freq.columns = product_freq.columns.droplevel(0)
+product_freq = product_freq.reset_index()
+
+product_freq.head()
+products_fe.head()
+products_fe = pd.merge(products_fe, product_freq, on="product_id").head()
+
+del product_freq
+
 
 ### user_fe - Feature engineering on user
 print("Feature engineering on user")
@@ -114,10 +136,10 @@ order_prior["UP_date_strike"] = 1/2 ** (order_prior["date"]/7)
 order_prior["UP_order_strike"] = 1/2 ** (order_prior["order_number_reverse"])
 users_products = order_prior.\
     groupby(["user_id", "product_id"]).\
-    agg({'reordered': {'nb_reordered': "size"} ,\
+    agg({'reordered': {'up_nb_reordered': "size"} ,\
          'add_to_cart_order': {'mean_add_to_cart_order': "mean"},\
-         'order_number': {'last_order_number': "max", 'first_order_number': "min"}, \
-         'date': {'last_order_date': "min", 'first_date_number': "max"}, \
+         'order_number': {'up_last_order_number': "max", 'up_first_order_number': "min"}, \
+         'date': {'up_last_order_date': "min", 'up_first_date_number': "max"}, \
          'UP_date_strike': {"UP_date_strike": "sum"},\
          'UP_order_strike': {"UP_order_strike": "sum"}})
 
@@ -166,11 +188,13 @@ def get_df(df):
     df_set = pd.merge(df_set, users_products, how='left', on=["user_id", "product_id"])
 
     # Should be done in appropriate place
-    df_set["up_rt_reordered"] =  df_set["nb_reordered"] / df_set["order_number"]
-    df_set["up_nb_order_since_first"] = (df_set["order_number"] - df_set["first_order_number"])
-    df_set["up_rt_reordered_since_first"] = df_set["nb_reordered"] / df_set["up_nb_order_since_first"]
-    df_set["up_nb_no-reordered_since_last"] = df_set["order_number"] - df_set["last_order_number"]
-
+    df_set["up_rt_reordered"] =  df_set["up_nb_reordered"] / df_set["order_number"] # Maybe delete because it might overfit?
+    df_set["up_nb_order_since_first"] = (df_set["order_number"] - df_set["up_first_order_number"])
+    df_set["up_rt_reordered_since_first"] = df_set["up_nb_reordered"] / df_set["up_nb_order_since_first"]
+    df_set["up_nb_no-reordered"] = df_set["order_number"] - df_set["up_last_order_number"]
+    df_set["up_days_no-reordered"] = df_set["up_last_order_date"] - df_set["date"]
+    df_set["up_freq_nb_no-reordered"] = df_set["up_nb_no-reordered"] / df_set["p_freq_order"]
+    df_set["up_freq_days_no-reordered"] = df_set["up_days_no-reordered"] / df_set["p_freq_days"]
     return df_set
 
 df_train = get_df(orders.query("eval_set == 'train'"))
@@ -206,6 +230,8 @@ model_gbm = gbm.fit(X_train, y_train,
         eval_set=[(X_train, y_train), (X_valid, y_valid)],
         eval_metric='l1',
         early_stopping_rounds=50)
+
+lgb.plot_importance(model_gbm)
 
 # Predict and submit -------------------------------------------------------------
 print('Predict and submit')
