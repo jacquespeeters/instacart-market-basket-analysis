@@ -15,10 +15,10 @@ prior_orders["product_id"] = prior_orders["product_id"].astype(str)
 
 # Extract the ordered products in each order
 
-train_products = train_orders.groupby("order_id")["product_id"].unique()
-prior_products = prior_orders.groupby("order_id")["product_id"].unique()
-#train_products = train_orders.groupby("order_id").apply(lambda order: order['product_id'].tolist())
-#prior_products = prior_orders.groupby("order_id").apply(lambda order: order['product_id'].tolist())
+#train_products = train_orders.groupby("order_id")["product_id"].unique()
+#prior_products = prior_orders.groupby("order_id")["product_id"].unique()
+train_products = train_orders.groupby("order_id").apply(lambda order: order['product_id'].tolist())
+prior_products = prior_orders.groupby("order_id").apply(lambda order: order['product_id'].tolist())
 
 # Create the final sentences
 sentences = prior_products.append(train_products).values
@@ -29,7 +29,6 @@ model = gensim.models.Word2Vec(sentences, size=100, window=5, min_count=5, worke
 # Organize data for visualization
 vocab = list(model.wv.vocab.keys())
 
-model.wv[vocab]
 suggestions = model.most_similar(positive=[vocab[1]], topn=5)
 
 # Some helpers for visualization
@@ -72,14 +71,20 @@ embeds = np.array(embeds)
 embeds = tsne.fit_transform(embeds)
 plot_with_labels(embeds, labels)
 
-# My code
+# My code -------------------------------------------------
 import sklearn as sk
-pca = sk.decomposition.PCA(2)
+import pickle
+
+
+pca = sk.decomposition.PCA(11)
 pca.fit(model.wv[vocab])
+pca.explained_variance_ratio_
 product2vec = pca.transform(model.wv[vocab])
-
 product2vec = pd.DataFrame(product2vec)
-product2vec.columns = ["pca0", "pca1"]
-product2vec["product_id"] =
+product2vec.columns = ["pca_" + str(s) for s in product2vec.columns.tolist()]
+product2vec["product_id"] = vocab
 
-int(vocab)
+product2vec["product_id"] = product2vec["product_id"].astype(int)
+
+pickle.dump(product2vec, open("product2vec.p", "wb"))
+
