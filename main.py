@@ -386,6 +386,7 @@ param_none = {'objective': 'binary', 'metric': 'binary_logloss', 'learning_rate'
 model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=50, verbose_eval=10)
 #lgb.plot_importance(model_gbm_none, importance_type="gain")
 
+
 # Predict and submit -------------------------------------------------------------
 print('Predict and submit')
 def get_df_pred(df, X_df, df_none, X_df_none):
@@ -400,24 +401,38 @@ def get_df_pred(df, X_df, df_none, X_df_none):
     df_test_pred = pd.concat([df_pred, df_pred_none])
     return df_test_pred
 
+
 def groupby_optimised_pred(group):
     group_none = group.query("product_id == 'None'")
-    f_score_none = group_none["pred"].values[0]
+    none_gain = group_none["pred"].values[0]
 
     group_no_none = group.query("product_id != 'None'")
     group_no_none = group_no_none.sort_values(["pred"], ascending=False)
     group_no_none["precision"] = group_no_none["pred"].expanding().mean()
-    group_no_none["recall"] = group_no_none["pred"].expanding().sum() / (sum(group_no_none["pred"]))
+    basket_size = group_no_none["pred"].sum()
+    group_no_none["recall"] = group_no_none["pred"].expanding().sum() / basket_size
     group_no_none["f_score"] = (2 * group_no_none["precision"] * group_no_none["recall"]) / (group_no_none["precision"] + group_no_none["recall"])
-    #group["rank"] = group["pred"].rank(ascending = False)
-    f_score_no_none = max(group_no_none["f_score"])
-    max_index = np.where(group_no_none["f_score"] == f_score_no_none)[0][0]
+    f_score = group_no_none["f_score"].max()
+    max_index = np.where(group_no_none["f_score"] == f_score)[0][0]
+    group_no_none = group_no_none[0:(max_index+1)] # Could be (max_index+k) with k>1 if the limit is risky
 
-    if f_score_none > f_score_no_none:
+    # f_score_none is the expected f_score if we add none
+    precision_none = (group_no_none["pred"].sum() + none_gain) / (group_no_none.shape[0] + 1)
+    recall_none = group_no_none.iloc[-1]["recall"]
+    f_score_none = (2 * precision_none * recall_none) / (precision_none + recall_none)
+
+    res = pd.concat([group_no_none, group_none.query("pred > @TRESHOLD")]).drop(["precision", "recall", "f_score"], axis=1)
+
+    # TODO add none if its treshold > @TRESHOLD and but helps expected score
+    #res = group_no_none.drop(["precision", "recall", "f_score"], axis=1)
+    #if none_gain - (f_score-f_score_none) > 0.05:
+    #    res = pd.concat([res,group_none])
+
+    #if f_score_none > f_score_no_none:
     #if f_score_none > max(group_no_none["pred"]):
-        res = group_none
-    else :
-        res = group_no_none[0:max_index].drop(["precision", "recall", "f_score"], axis=1)
+    #    res = group_none
+    #else :
+    #    res = group_no_none[0:(max_index+1)].drop(["precision", "recall", "f_score"], axis=1)
 
     return res
 
@@ -427,10 +442,6 @@ def filter_optimised_pred(df):
         groupby("user_id"). \
         apply(groupby_optimised_pred).reset_index(drop=True)
     return df
-
-#filter_optimised_pred(df_valid_pred)
-
-df_valid_pred = get_df_pred(df_valid, X_valid, df_valid_none, X_valid_none)
 
 def compute_fscore(df_valid_pred):
     df_valid = df_train.ix[sample_index]
@@ -461,8 +472,12 @@ def compute_fscore(df_valid_pred):
     return res.mean()
 
 print("Score estimation")
+df_valid_pred = get_df_pred(df_valid, X_valid, df_valid_none, X_valid_none)
 TRESHOLD = 0.19
 print(compute_fscore(df_valid_pred.query("pred > @TRESHOLD")))
+print(compute_fscore(df_valid_pred.query("(product_id == 'None' and pred > 0.14) or (product_id != 'None' and pred > 0.19)")))
+print(compute_fscore(filter_optimised_pred(df_valid_pred)))
+
 # Doesn't work because basket size of reordered product is probably not good. And None product is something really particular
 #print(compute_fscore(filter_optimised_pred(df_valid_pred)))
 #print(compute_fscore(filter_optimised_pred(df_valid_pred).query("pred > 0.22")))
@@ -470,29 +485,13 @@ print(compute_fscore(df_valid_pred.query("pred > @TRESHOLD")))
 df_test_pred = get_df_pred(df_test, X_test, df_test_none, X_test_none)
 
 print("Generate submission")
-d = dict()
+sub = filter_optimised_pred(df_test_pred).\
+    groupby("order_id")["product_id"].\
+    apply(lambda col: col.astype(str).str.cat(sep=' ')).rename("products").reset_index()
 
-#sub = df_test_pred.query("pred > @TRESHOLD").\
-#    groupby("order_id")["product_id"].\
-#    agg(lambda col: ''.join(col))
+sub = pd.merge(pd.DataFrame(df_test_pred.order_id.unique(), columns=['order_id']), sub, how="left", on="order_id")
+sub = sub.fillna('None')
 
-#pd.merge(sub, df_test_pred["order_id"].drop_duplicates().to_frame(), how="left", on="order_id")
-
-for row in df_test_pred.itertuples():
-    if row.pred > TRESHOLD:
-        try:
-            d[row.order_id] += ' ' + str(row.product_id)
-        except:
-            d[row.order_id] = str(row.product_id)
-
-for order in df_test_pred.order_id.unique():
-    if order not in d:
-        d[order] = 'None'
-
-sub = pd.DataFrame.from_dict(d, orient='index')
-sub = sub.reset_index()
 sub.columns = ['order_id', 'products']
 sub.to_csv('./sub.csv', index=False)
-
-
 
