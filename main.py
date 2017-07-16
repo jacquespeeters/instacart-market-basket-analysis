@@ -40,7 +40,7 @@ print("Sample by user_id")
 user_id = orders["user_id"].unique()
 np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=20000, replace=False).tolist()
-#orders = orders.query("user_id == @sample_user_id")
+orders = orders.query("user_id == @sample_user_id")
 
 ###
 print("Add user_id to order_products__XXX ")
@@ -396,7 +396,7 @@ model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid
 #feature_importance.columns = ["Feature"]
 #feature_importance["Importance_gain"] = model_gbm.feature_importance(importance_type='gain')
 #feature_importance.head()
-
+gc.collect()
 # Modeling None -----------------------
 
 sample_index_none = df_train_none.query("user_id == @sample_user_id").index
@@ -420,7 +420,7 @@ param_none = {'objective': 'binary', 'metric': 'binary_logloss', 'learning_rate'
 model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=50, verbose_eval=10)
 #lgb.plot_importance(model_gbm_none, importance_type="gain")
 
-
+gc.collect()
 # Predict and submit -------------------------------------------------------------
 print('Predict and submit')
 def get_df_pred(df, X_df, df_none, X_df_none):
@@ -528,4 +528,4 @@ sub = sub.fillna('None')
 
 sub.columns = ['order_id', 'products']
 sub.to_csv('./sub.csv', index=False)
-
+gc.collect()
