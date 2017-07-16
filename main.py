@@ -6,6 +6,7 @@ import ipdb
 import timeit
 import pickle
 import sklearn as sk
+import gc
 
 # Thanks for the inspiration
 # https://www.kaggle.com/paulantoine/light-gbm-benchmark-0-3692/code
@@ -198,7 +199,7 @@ order_prior["UP_order_strike"] = 1/2 ** (order_prior["order_number_reverse"])
 users_products = order_prior.\
     groupby(["user_id", "product_id"]).\
     agg({'reordered': {'up_nb_reordered': "size"},\
-         'add_to_cart_order': {'mean_add_to_cart_order': "mean"},\
+         'add_to_cart_order': {'up_mean_add_to_cart_order': "mean"},\
          'order_number_reverse': {'up_last_order_number': "min", 'up_first_order_number': "max"}, \
          'date': {'up_last_order_date': "min", 'up_first_date_number': "max"}, \
          'UP_date_strike': {"UP_date_strike": "sum"},\
@@ -216,7 +217,6 @@ users_products_none = users_products.groupby("user_id").\
 
 users_products_none.columns = users_products_none.columns.droplevel(0)
 users_products_none = users_products_none.reset_index()
-
 
 ### aisles
 print("Feature engineering on aisles")
@@ -240,10 +240,24 @@ aisles_fe2 = aisles_fe2.groupby('aisle_id')["UA_bool_reordered"].\
     rename(index=str, columns={"mean": "a_reorder_rt_bool", "size": "a_active_user"})
 
 aisles_fe = pd.merge(aisles_fe, aisles_fe2, how="left", on="aisle_id")
-del aisles_fe2, aisles_order
+del aisles_fe2
 
+### user_aisle_fe
 
-### departement
+user_aisle_fe = aisles_order.\
+    groupby(["user_id", "aisle_id"]).\
+    agg({'product_id': {"UA_product_rt": "nunique"}})
+
+user_aisle_fe.columns = user_aisle_fe.columns.droplevel(0)
+user_aisle_fe = user_aisle_fe.reset_index()
+
+user_aisle_fe = pd.merge(user_aisle_fe, users_fe[["user_id", "u_active_p"]], how="left", on="user_id")
+user_aisle_fe["UA_product_rt"] = user_aisle_fe["UA_product_rt"] / user_aisle_fe["u_active_p"]
+user_aisle_fe = user_aisle_fe.drop("u_active_p", axis=1)
+
+del aisles_order
+
+### departments_fe
 print("Feature engineering on departments")
 
 departments_order = pd.merge(order_prior, products, on="product_id")
@@ -267,7 +281,22 @@ departments_fe2 = departments_fe2.groupby('department_id')["UD_bool_reordered"].
     rename(index=str, columns={"mean": "d_reorder_rt_bool", "size": "d_active_user"})
 
 departments_fe = pd.merge(departments_fe, departments_fe2, how="left", on="department_id")
-del departments_fe2, departments_order
+del departments_fe2
+
+### user_department_fe
+departments_order.head()
+user_department_fe = departments_order.\
+    groupby(["user_id", "department_id"]).\
+    agg({'product_id': {"UD_product_rt": "nunique"}})
+
+user_department_fe.columns = user_department_fe.columns.droplevel(0)
+user_department_fe = user_department_fe.reset_index()
+
+user_department_fe = pd.merge(user_department_fe, users_fe[["user_id", "u_active_p"]], how="left", on="user_id")
+user_department_fe["UD_product_rt"] = user_department_fe["UD_product_rt"] / user_department_fe["u_active_p"]
+user_department_fe = user_department_fe.drop("u_active_p", axis=1)
+
+del departments_order
 
 ### Construct target Y dataset by creating user_past_product
 print("Get label by creating user_past_product")
@@ -305,6 +334,8 @@ def get_df(df):
     df_set = pd.merge(df_set, departments_fe, how='left', on="department_id")
     df_set = pd.merge(df_set, users_products, how='left', on=["user_id", "product_id"])
     df_set = pd.merge(df_set, product2vec, how='left', on="product_id")
+    df_set = pd.merge(df_set, user_aisle_fe, how='left', on=["user_id", "aisle_id"])
+    df_set = pd.merge(df_set, user_department_fe, how='left', on=["user_id", "department_id"])
 
     # Should be done in appropriate place
     df_set["up_rt_reordered"] = df_set["up_nb_reordered"] / df_set["order_number"] # Maybe delete because it might overfit?
@@ -327,12 +358,15 @@ def get_df_none(df):
 df_train_none = get_df_none(orders.query("eval_set == 'train'"))
 df_test_none = get_df_none(orders.query("eval_set == 'test'"))
 
+#del aisles, aisles_fe, departments, departments_fe, order_none, order_prior, order_train, orders, \
+#    product2vec, products, products_fe, up_fe2, users_products, users_fe, user_past_product, users_products_none
+gc.collect()
 
 # Modeling -----------------------
 print("Sample by user_id")
 user_id = df_train["user_id"].unique()
 np.random.seed(seed=7)
-sample_user_id = np.random.choice(user_id, size=int(len(user_id)*0.2), replace=False).tolist()
+sample_user_id = np.random.choice(user_id, size=int(len(user_id)*0.20), replace=False).tolist()
 # Sampling takes time -_-
 sample_index = df_train.query("user_id == @sample_user_id").index
 df_valid = df_train.ix[sample_index]
@@ -414,23 +448,30 @@ def groupby_optimised_pred(group):
     group_no_none["f_score"] = (2 * group_no_none["precision"] * group_no_none["recall"]) / (group_no_none["precision"] + group_no_none["recall"])
     f_score = group_no_none["f_score"].max()
     max_index = np.where(group_no_none["f_score"] == f_score)[0][0]
-    group_no_none = group_no_none[0:(max_index+1)] # Could be (max_index+k) with k>1 if the limit is risky
+    group_no_none = group_no_none[0:(max_index+1)] # Could be (max_index+k) with k>1 if the limit is risky maybe?
 
     # f_score_none is the expected f_score if we add none
-    precision_none = (group_no_none["pred"].sum() + none_gain) / (group_no_none.shape[0] + 1)
+    precision_none = (group_no_none["pred"].sum()) / (group_no_none.shape[0] + 1)
     recall_none = group_no_none.iloc[-1]["recall"]
     f_score_none = (2 * precision_none * recall_none) / (precision_none + recall_none)
 
-    res = pd.concat([group_no_none, group_none.query("pred > @TRESHOLD")]).drop(["precision", "recall", "f_score"], axis=1)
+    #res = pd.concat([group_no_none, group_none.query("pred > @TRESHOLD")]).drop(["precision", "recall", "f_score"], axis=1)
+    res = group_no_none.drop(["precision", "recall", "f_score"], axis=1)
 
-    # TODO add none if its treshold > @TRESHOLD and but helps expected score
-    #res = group_no_none.drop(["precision", "recall", "f_score"], axis=1)
-    #if none_gain - (f_score-f_score_none) > 0.05:
+    # TODO add none if it's worth it
+    #if (none_gain - (f_score - f_score_none) > seuil) and (none_gain < max(group_no_none["pred"])):
+    #    print(none_gain - (f_score - f_score_none))
+
+    if (none_gain - (f_score - f_score_none) > 0.07):
+        res = pd.concat([res, group_none])
+
+    #    print(none_gain - (f_score-f_score_none))
     #    res = pd.concat([res,group_none])
 
-    #if f_score_none > f_score_no_none:
-    #if f_score_none > max(group_no_none["pred"]):
-    #    res = group_none
+    # TODO improve condition
+    if none_gain > f_score:
+    #if none_gain > (none_gain + f_score_none - 0.07):
+        res = group_none
     #else :
     #    res = group_no_none[0:(max_index+1)].drop(["precision", "recall", "f_score"], axis=1)
 
@@ -443,6 +484,7 @@ def filter_optimised_pred(df):
         apply(groupby_optimised_pred).reset_index(drop=True)
     return df
 
+
 def compute_fscore(df_valid_pred):
     df_valid = df_train.ix[sample_index]
     df_none_true = df_valid. \
@@ -450,7 +492,6 @@ def compute_fscore(df_valid_pred):
         reset_index()
 
     # Warning bellow but don't know where :/
-
     # If atleast one reorderd then None is 0, otherwise 1
     df_none_true["reordered"] = (df_none_true["reordered"] < 1).astype(int)
     df_none_true = df_none_true.query("reordered == 1")
@@ -473,14 +514,7 @@ def compute_fscore(df_valid_pred):
 
 print("Score estimation")
 df_valid_pred = get_df_pred(df_valid, X_valid, df_valid_none, X_valid_none)
-TRESHOLD = 0.19
-print(compute_fscore(df_valid_pred.query("pred > @TRESHOLD")))
-print(compute_fscore(df_valid_pred.query("(product_id == 'None' and pred > 0.14) or (product_id != 'None' and pred > 0.19)")))
 print(compute_fscore(filter_optimised_pred(df_valid_pred)))
-
-# Doesn't work because basket size of reordered product is probably not good. And None product is something really particular
-#print(compute_fscore(filter_optimised_pred(df_valid_pred)))
-#print(compute_fscore(filter_optimised_pred(df_valid_pred).query("pred > 0.22")))
 
 df_test_pred = get_df_pred(df_test, X_test, df_test_none, X_test_none)
 
