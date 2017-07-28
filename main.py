@@ -5,7 +5,6 @@ import utils
 import ipdb
 import timeit
 import pickle
-import sklearn as sk
 import gc
 
 # Thanks for the inspiration
@@ -40,7 +39,7 @@ print("Sample by user_id")
 user_id = orders["user_id"].unique()
 np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=20000, replace=False).tolist()
-#orders = orders.query("user_id == @sample_user_id")
+orders = orders.query("user_id == @sample_user_id")
 
 ###
 print("Add user_id to order_products__XXX ")
@@ -133,16 +132,20 @@ del products_organic
 ### user_fe - Feature engineering on user
 print("Feature engineering on user")
 
-# days_since_prior_order info
-users_fe = orders.\
-    groupby("user_id")["days_since_prior_order"].\
-    agg([np.sum, np.mean, np.std])
+# User FE
+users_fe = order_prior.\
+    groupby("user_id").\
+    agg({'reordered':{'U_rt_reordered':'mean'},\
+         'date':{'U_date_inscription':'max'},\
+         'days_since_prior_order':{'U_days_since_mean':'mean', \
+                                   'U_days_since_std': 'std', \
+                                   'U_days_since_sum': 'sum'}})
 
-users_fe.columns = ["sum_days_since_prior_order", "mean_days_since_prior_order", "std_days_since_prior_order"]
+users_fe.columns = users_fe.columns.droplevel(0)
 users_fe = users_fe.reset_index()
 
 # User basket sum, mean, std
-# TODO same but only on reordered products
+# TODO same but only on reordered products?
 users_fe2 = order_prior.\
     groupby(["user_id", "order_id"]).size().\
     reset_index().\
@@ -150,19 +153,11 @@ users_fe2 = order_prior.\
     groupby("user_id").\
     agg([np.sum, np.mean, np.std])
 
-users_fe2.columns = ["sum_basket", "mean_basket", "std_basket"]
+users_fe2.columns = ["U_basket_sum", "U_basket_mean", "U_basket_std"]
 users_fe2 = users_fe2.reset_index()
 
-users_fe3 = order_prior.\
-    groupby("user_id")["reordered"].\
-    agg("mean").\
-    reset_index()
-
-users_fe3.columns = ["user_id", "U_rt_reordered"]
-
 users_fe = pd.merge(users_fe, users_fe2, on="user_id")
-users_fe = pd.merge(users_fe, users_fe3, on="user_id")
-del users_fe2, users_fe3
+del users_fe2
 
 # u_active_p == user distinct products
 users_fe4 = up_fe2.groupby('user_id')["bool_reordered"].\
@@ -172,15 +167,23 @@ users_fe4 = up_fe2.groupby('user_id')["bool_reordered"].\
 users_fe = pd.merge(users_fe, users_fe4, on="user_id")
 del users_fe4
 
+# TODO U_none_reordered_strike
+# New way
 user_fe_none = order_prior.\
-    groupby(["order_id", "user_id"])["reordered"].sum(). \
-    reset_index()
+  groupby(["order_id", "user_id"]).\
+  agg({'reordered': {'reordered': "sum"},\
+       'order_number_reverse': {'order_number_reverse':'first'}})
+
+user_fe_none.columns = user_fe_none.columns.droplevel(0)
+user_fe_none = user_fe_none.reset_index()
 
 user_fe_none["reordered"] = (user_fe_none["reordered"] < 1).astype(int)
+user_fe_none["U_none_reordered_strike"] = user_fe_none["reordered"] * 1/2 ** (user_fe_none["order_number_reverse"])
 
 user_fe_none = user_fe_none.\
-    groupby("user_id")["reordered"]. \
-    agg({'reordered': {'U_none_reordered_mean': "mean", 'U_none_reordered_sum': "sum"}})
+    groupby("user_id"). \
+    agg({'reordered': {'U_none_reordered_mean': "mean", 'U_none_reordered_sum': "sum"}, \
+         'U_none_reordered_strike': {'U_none_reordered_strike': "sum"}})
 
 user_fe_none.columns = user_fe_none.columns.droplevel(0)
 user_fe_none = user_fe_none.reset_index()
@@ -320,7 +323,6 @@ order_none = order_train.\
 
 order_none["reordered"] = (order_none["reordered"] < 1).astype(int)
 
-
 # Create dataset which we'll learn on -------------------------------------------------
 print("Create dataset which we'll learn on")
 def get_df(df):
@@ -338,11 +340,14 @@ def get_df(df):
     df_set = pd.merge(df_set, user_department_fe, how='left', on=["user_id", "department_id"])
 
     # Should be done in appropriate place
-    df_set["up_rt_reordered"] = df_set["up_nb_reordered"] / df_set["order_number"] # Maybe delete because it might overfit?
-    df_set["up_rt_reordered_since_first"] = df_set["up_nb_reordered"] / df_set["up_first_order_number"]
-    df_set["up_days_no-reordered"] = df_set["up_last_order_date"] - df_set["date"]
-    df_set["up_freq_nb_no-reordered"] = df_set["up_last_order_number"] / df_set["p_freq_order"]
-    df_set["up_freq_days_no-reordered"] = df_set["up_days_no-reordered"] / df_set["p_freq_days"]
+    df_set["UP_rt_reordered"] = df_set["up_nb_reordered"] / df_set["order_number"] # Maybe delete because it might overfit?
+    df_set["UP_rt_reordered_since_first"] = df_set["up_nb_reordered"] / df_set["up_first_order_number"]
+    df_set["UP_days_no-reordered"] = df_set["up_last_order_date"] - df_set["date"]
+    df_set["UP_freq_nb_no-reordered"] = df_set["up_last_order_number"] / df_set["p_freq_order"]
+    df_set["UP_freq_days_no-reordered"] = df_set["UP_days_no-reordered"] / df_set["p_freq_days"]
+    df_set["UP_sum_basket_rt"] = df_set["up_nb_reordered"] / df_set["U_basket_sum"]
+    df_set["O_days_since_prior_order_diff"] = df_set["days_since_prior_order"] - df_set["U_days_since_mean"]
+    df_set["O_days_since_prior_order_rt"] = df_set["days_since_prior_order"] / df_set["U_days_since_mean"]
     return df_set
 
 df_train = get_df(orders.query("eval_set == 'train'"))
@@ -353,6 +358,8 @@ def get_df_none(df):
     df_set = pd.merge(df, order_none, on=["order_id", "user_id"], how="left")
     df_set = pd.merge(df_set, users_fe, on="user_id", how="left")
     df_set = pd.merge(df_set, users_products_none, on="user_id", how="left")
+    df_set["O_days_since_prior_order_diff"] = df_set["days_since_prior_order"] - df_set["U_days_since_mean"]
+    df_set["O_days_since_prior_order_rt"] = df_set["days_since_prior_order"] / df_set["U_days_since_mean"]
     return df_set
 
 df_train_none = get_df_none(orders.query("eval_set == 'train'"))
@@ -362,65 +369,62 @@ df_test_none = get_df_none(orders.query("eval_set == 'test'"))
 #    product2vec, products, products_fe, up_fe2, users_products, users_fe, user_past_product, users_products_none
 gc.collect()
 
-# Modeling -----------------------
+# Sample by user_id ----------------------------------------
 print("Sample by user_id")
 user_id = df_train["user_id"].unique()
 np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=int(len(user_id)*0.20), replace=False).tolist()
+
+# Modeling -----------------------------------
 # Sampling takes time -_-
 sample_index = df_train.query("user_id == @sample_user_id").index
 df_valid = df_train.ix[sample_index]
+df_train = df_train.drop(sample_index)
 
 to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name","department", "aisle", \
-           "order_number_reverse", "date"]
+           "order_number_reverse", "date", "UP_days_no-reordered"]
 
 X_train = df_train.drop(to_drop + ["reordered"], axis=1)
+X_valid = df_valid.drop(to_drop + ["reordered"], axis=1)
 X_test = df_test.drop(to_drop + ["reordered"], axis=1)
 y_train = df_train["reordered"]
-
-X_valid = X_train.ix[sample_index]
-y_valid = y_train.ix[sample_index]
-X_train = X_train.drop(sample_index)
-y_train = y_train.drop(sample_index)
+y_valid = df_valid["reordered"]
 
 print("Training model")
 # , params= {'bin_construct_sample_cnt': 10**10}
 lgb_train = lgb.Dataset(X_train, label=y_train)
 lgb_valid = lgb.Dataset(X_valid, label=y_valid)
-param = {'objective': 'binary', 'metric': 'binary_logloss', 'learning_rate':0.05}
+param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05}
 model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=100, verbose_eval=10)
-
 #lgb.plot_importance(model_gbm, importance_type="gain")
-#model_gbm.feature_importance(importance_type='gain')
 #feature_importance = pd.DataFrame(model_gbm.feature_name())
 #feature_importance.columns = ["Feature"]
 #feature_importance["Importance_gain"] = model_gbm.feature_importance(importance_type='gain')
-#feature_importance.head()
+# feature_importance = feature_importance.sort("Importance_gain")
+# feature_importance.head()
 
+gc.collect()
 # Modeling None -----------------------
-
 sample_index_none = df_train_none.query("user_id == @sample_user_id").index
 df_valid_none = df_train_none.ix[sample_index_none]
+df_train_none = df_train_none.drop(sample_index_none)
 
 to_drop_none = ["order_id", "user_id", "eval_set", "date"]
 
 X_train_none = df_train_none.drop(to_drop_none + ["reordered"], axis=1)
+X_valid_none = df_valid_none.drop(to_drop_none + ["reordered"], axis=1)
 X_test_none = df_test_none.drop(to_drop_none + ["reordered"], axis=1)
 y_train_none = df_train_none["reordered"]
-
-X_valid_none = X_train_none.ix[sample_index_none]
-y_valid_none = y_train_none.ix[sample_index_none]
-X_train_none = X_train_none.drop(sample_index_none)
-y_train_none = y_train_none.drop(sample_index_none)
+y_valid_none = df_valid_none["reordered"]
 
 print("\n\nTraining model")
 lgb_train_none = lgb.Dataset(X_train_none, label=y_train_none)
 lgb_valid_none = lgb.Dataset(X_valid_none, label=y_valid_none)
-param_none = {'objective': 'binary', 'metric': 'binary_logloss', 'learning_rate':0.05}
+param_none = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05}
 model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=50, verbose_eval=10)
-#lgb.plot_importance(model_gbm_none, importance_type="gain")
+# lgb.plot_importance(model_gbm_none, importance_type="gain")
 
-
+gc.collect()
 # Predict and submit -------------------------------------------------------------
 print('Predict and submit')
 def get_df_pred(df, X_df, df_none, X_df_none):
@@ -437,13 +441,12 @@ def get_df_pred(df, X_df, df_none, X_df_none):
 
 
 def groupby_optimised_pred(group):
-    group_none = group.query("product_id == 'None'")
+    group_none = group.iloc[0:1]
     none_gain = group_none["pred"].values[0]
+    group_no_none = group.iloc[1:]
 
-    group_no_none = group.query("product_id != 'None'")
-    group_no_none = group_no_none.sort_values(["pred"], ascending=False)
     group_no_none["precision"] = group_no_none["pred"].expanding().mean()
-    basket_size = group_no_none["pred"].sum()
+    basket_size = group_no_none["pred"].sum() - 0.1 # Empirically found, could be finest, f-score is asymetric
     group_no_none["recall"] = group_no_none["pred"].expanding().sum() / basket_size
     group_no_none["f_score"] = (2 * group_no_none["precision"] * group_no_none["recall"]) / (group_no_none["precision"] + group_no_none["recall"])
     f_score = group_no_none["f_score"].max()
@@ -455,54 +458,45 @@ def groupby_optimised_pred(group):
     recall_none = group_no_none.iloc[-1]["recall"]
     f_score_none = (2 * precision_none * recall_none) / (precision_none + recall_none)
 
-    #res = pd.concat([group_no_none, group_none.query("pred > @TRESHOLD")]).drop(["precision", "recall", "f_score"], axis=1)
     res = group_no_none.drop(["precision", "recall", "f_score"], axis=1)
 
-    # TODO add none if it's worth it
-    #if (none_gain - (f_score - f_score_none) > seuil) and (none_gain < max(group_no_none["pred"])):
-    #    print(none_gain - (f_score - f_score_none))
-
-    if (none_gain - (f_score - f_score_none) > 0.07):
+    # Add none if it's worth it
+    # 0.07 and not 0 because f_score is under-estimated, could be finest
+    if (none_gain - (f_score - f_score_none) >  0.07):
         res = pd.concat([res, group_none])
 
-    #    print(none_gain - (f_score-f_score_none))
-    #    res = pd.concat([res,group_none])
-
-    # TODO improve condition
-    if none_gain > f_score:
-    #if none_gain > (none_gain + f_score_none - 0.07):
+    #if (none_gain > f_score + tresh):
+    if (none_gain > f_score):
         res = group_none
-    #else :
-    #    res = group_no_none[0:(max_index+1)].drop(["precision", "recall", "f_score"], axis=1)
+
+    #if (none_gain > group_no_none["pred"].values[0]): #Worsen score, need to understand why
+    #    res = group_none
 
     return res
 
 
 def filter_optimised_pred(df):
+    df["is_none"] = (df["product_id"] == 'None').astype(int)
+    df = df.sort_values(["is_none", "pred"], ascending=False).drop("is_none", axis=1)
     df = df. \
         groupby("user_id"). \
         apply(groupby_optimised_pred).reset_index(drop=True)
     return df
 
 
-def compute_fscore(df_valid_pred):
-    df_valid = df_train.ix[sample_index]
-    df_none_true = df_valid. \
+def compute_fscore(df, df_pred):
+    df_none_true = df. \
         groupby(["order_id", "user_id"])["reordered"].sum().\
         reset_index()
 
     # Warning bellow but don't know where :/
     # If atleast one reorderd then None is 0, otherwise 1
     df_none_true["reordered"] = (df_none_true["reordered"] < 1).astype(int)
-    df_none_true = df_none_true.query("reordered == 1")
-    # product_id for None is defined as 0
     df_none_true.loc[:,"product_id"] = "None"
-    df_valid = pd.concat([df_valid, df_none_true])
-    df_y_true = df_valid.query("reordered==1").groupby("user_id")["product_id"].unique().\
-    reset_index()
+    df = pd.concat([df, df_none_true])
+    df_y_true = df.query("reordered==1").groupby("user_id")["product_id"].unique().reset_index()
     df_y_true.columns = ["user_id", "y_true"]
-    df_y_pred = df_valid_pred.groupby("user_id")["product_id"].unique().\
-    reset_index()
+    df_y_pred = df_pred.groupby("user_id")["product_id"].unique().reset_index()
     df_y_pred.columns = ["user_id", "y_pred"]
 
     res = pd.merge(df_y_true, df_y_pred, on="user_id", how="left")
@@ -514,11 +508,11 @@ def compute_fscore(df_valid_pred):
 
 print("Score estimation")
 df_valid_pred = get_df_pred(df_valid, X_valid, df_valid_none, X_valid_none)
-print(compute_fscore(filter_optimised_pred(df_valid_pred)))
-
-df_test_pred = get_df_pred(df_test, X_test, df_test_none, X_test_none)
+print(compute_fscore(df_valid, filter_optimised_pred(df_valid_pred)))
 
 print("Generate submission")
+df_test_pred = get_df_pred(df_test, X_test, df_test_none, X_test_none)
+
 sub = filter_optimised_pred(df_test_pred).\
     groupby("order_id")["product_id"].\
     apply(lambda col: col.astype(str).str.cat(sep=' ')).rename("products").reset_index()
@@ -528,4 +522,4 @@ sub = sub.fillna('None')
 
 sub.columns = ['order_id', 'products']
 sub.to_csv('./sub.csv', index=False)
-
+gc.collect()
