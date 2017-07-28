@@ -508,12 +508,14 @@ def compute_fscore(df, df_pred):
 
 print("Score estimation")
 df_valid_pred = get_df_pred(df_valid, X_valid, df_valid_none, X_valid_none)
-print(compute_fscore(df_valid, filter_optimised_pred(df_valid_pred)))
+df_valid_pred["group"] = df_valid_pred["user_id"].mod(12)
+print(compute_fscore(df_valid, utils.applyParallel(df_valid_pred.groupby("group"), filter_optimised_pred)))
 
 print("Generate submission")
 df_test_pred = get_df_pred(df_test, X_test, df_test_none, X_test_none)
+df_test_pred["group"] = df_test_pred["user_id"].mod(12)
 
-sub = filter_optimised_pred(df_test_pred).\
+sub = utils.applyParallel(df_test_pred.groupby("group"), filter_optimised_pred).\
     groupby("order_id")["product_id"].\
     apply(lambda col: col.astype(str).str.cat(sep=' ')).rename("products").reset_index()
 
