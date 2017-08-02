@@ -6,6 +6,7 @@ import ipdb
 import timeit
 import pickle
 import gc
+import time
 
 # Thanks for the inspiration
 # https://www.kaggle.com/paulantoine/light-gbm-benchmark-0-3692/code
@@ -20,6 +21,7 @@ orders = pd.read_csv("./data/orders.csv")
 products = pd.read_csv("./data/products.csv")
 
 # Fucking slow :/ - So i pickled it
+# Way faster & easier with dplyr...
 def add_fe_to_orders(group):
     group["date"] = group.ix[::-1, 'days_since_prior_order'].cumsum()[::-1].shift(-1).fillna(0)
     max_group = group["order_number"].max()
@@ -39,7 +41,7 @@ print("Sample by user_id")
 user_id = orders["user_id"].unique()
 np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=20000, replace=False).tolist()
-orders = orders.query("user_id == @sample_user_id")
+#orders = orders.query("user_id == @sample_user_id")
 
 ###
 print("Add user_id to order_products__XXX ")
@@ -66,11 +68,6 @@ products_fe = order_prior.\
          'order_number': {"P_recency_order": "mean"}, \
          'order_number_reverse': {"P_recency_order_r": "mean"}, \
          'date': {"P_recency_date": "mean"}})
-
-#products_fe = order_prior.\
-#    groupby(["product_id"]).\
-#    agg({'reordered': {'p_reorder_rt': "mean", 'p_count': "size"},\
-#         'add_to_cart_order': {"p_add_to_cart_order": "mean"}})
 
 products_fe.columns = products_fe.columns.droplevel(0)
 products_fe = products_fe.reset_index()
@@ -131,13 +128,11 @@ del products_organic
 
 ### user_fe - Feature engineering on user
 print("Feature engineering on user")
-
-# User FE
 users_fe = order_prior.\
     groupby("user_id").\
     agg({'reordered':{'U_rt_reordered':'mean'},\
          'date':{'U_date_inscription':'max'},\
-         'days_since_prior_order':{'U_days_since_mean':'mean', \
+         'days_since_prior_order': {'U_days_since_mean': 'mean', \
                                    'U_days_since_std': 'std', \
                                    'U_days_since_sum': 'sum'}})
 
@@ -169,6 +164,8 @@ del users_fe4
 
 # TODO U_none_reordered_strike
 # New way
+# TODO test if it's help or not, keeping it might be used as a skrinking term
+# .query("order_number !=1")
 user_fe_none = order_prior.\
   groupby(["order_id", "user_id"]).\
   agg({'reordered': {'reordered': "sum"},\
@@ -193,7 +190,6 @@ del user_fe_none
 
 ### user_product - UP
 print("Feature engineering on User_product")
-
 # Could be something else than 1/2
 order_prior["UP_date_strike"] = 1/2 ** (order_prior["date"]/7)
 #order_prior["UP_order_strike"] = 100000 * 1/2 ** (order_prior["order_number_reverse"])
@@ -210,7 +206,8 @@ users_products = order_prior.\
 
 users_products.columns = users_products.columns.droplevel(0)
 users_products = users_products.reset_index()
-users_products["UP_order_strike_rt"] = users_products["UP_order_strike"] / ((1 - 1/2**(users_products["up_first_order_number"] + 1))/(1-1/2) - 1)
+
+#users_products["UP_order_strike_rt"] = users_products["UP_order_strike"] / ((1 - 1/2**(users_products["up_first_order_number"] + 1))/(1-1/2) - 1)
 
 ### users_products_none summary of users_products
 
@@ -246,7 +243,7 @@ aisles_fe = pd.merge(aisles_fe, aisles_fe2, how="left", on="aisle_id")
 del aisles_fe2
 
 ### user_aisle_fe
-
+print("Feature engineering on user_aisle_fe")
 user_aisle_fe = aisles_order.\
     groupby(["user_id", "aisle_id"]).\
     agg({'product_id': {"UA_product_rt": "nunique"}})
@@ -287,7 +284,7 @@ departments_fe = pd.merge(departments_fe, departments_fe2, how="left", on="depar
 del departments_fe2
 
 ### user_department_fe
-departments_order.head()
+print("Feature engineering on user_department_fe")
 user_department_fe = departments_order.\
     groupby(["user_id", "department_id"]).\
     agg({'product_id': {"UD_product_rt": "nunique"}})
@@ -365,8 +362,8 @@ def get_df_none(df):
 df_train_none = get_df_none(orders.query("eval_set == 'train'"))
 df_test_none = get_df_none(orders.query("eval_set == 'test'"))
 
-#del aisles, aisles_fe, departments, departments_fe, order_none, order_prior, order_train, orders, \
-#    product2vec, products, products_fe, up_fe2, users_products, users_fe, user_past_product, users_products_none
+del aisles, aisles_fe, departments, departments_fe, order_none, order_prior, order_train, orders, \
+    product2vec, products, products_fe, up_fe2, users_products, users_fe, user_past_product, users_products_none
 gc.collect()
 
 # Sample by user_id ----------------------------------------
@@ -381,6 +378,7 @@ sample_index = df_train.query("user_id == @sample_user_id").index
 df_valid = df_train.ix[sample_index]
 df_train = df_train.drop(sample_index)
 
+# TODO try to not drop order_id
 to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name","department", "aisle", \
            "order_number_reverse", "date", "UP_days_no-reordered"]
 
@@ -394,8 +392,8 @@ print("Training model")
 # , params= {'bin_construct_sample_cnt': 10**10}
 lgb_train = lgb.Dataset(X_train, label=y_train)
 lgb_valid = lgb.Dataset(X_valid, label=y_valid)
-param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05}
-model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=100, verbose_eval=10)
+param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05, 'verbose': 0}
+model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=10)
 #lgb.plot_importance(model_gbm, importance_type="gain")
 #feature_importance = pd.DataFrame(model_gbm.feature_name())
 #feature_importance.columns = ["Feature"]
@@ -417,11 +415,12 @@ X_test_none = df_test_none.drop(to_drop_none + ["reordered"], axis=1)
 y_train_none = df_train_none["reordered"]
 y_valid_none = df_valid_none["reordered"]
 
-print("\n\nTraining model")
-lgb_train_none = lgb.Dataset(X_train_none, label=y_train_none)
-lgb_valid_none = lgb.Dataset(X_valid_none, label=y_valid_none)
-param_none = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05}
-model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=50, verbose_eval=10)
+print("\n\nTraining model none")
+lgb_train_none = lgb.Dataset(X_train_none, label=y_train_none, max_bin=100)
+lgb_valid_none = lgb.Dataset(X_valid_none, label=y_valid_none, max_bin=100)
+param_none = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05,\
+              'num_leaves':3, 'min_data_in_leaf':500, 'verbose': 0}
+model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=10)
 # lgb.plot_importance(model_gbm_none, importance_type="gain")
 
 gc.collect()
@@ -444,12 +443,16 @@ def groupby_optimised_pred(group):
     group_none = group.iloc[0:1]
     none_gain = group_none["pred"].values[0]
     group_no_none = group.iloc[1:]
-
     group_no_none["precision"] = group_no_none["pred"].expanding().mean()
-    basket_size = group_no_none["pred"].sum() - 0.1 # Empirically found, could be finest, f-score is asymetric
+    basket_size = group_no_none["pred"].sum() #0.75 #- 0.10 # Empirically found, could be finest, f-score is asymetric
     group_no_none["recall"] = group_no_none["pred"].expanding().sum() / basket_size
     group_no_none["f_score"] = (2 * group_no_none["precision"] * group_no_none["recall"]) / (group_no_none["precision"] + group_no_none["recall"])
     f_score = group_no_none["f_score"].max()
+
+    #group_no_none["recall_init"] = group_no_none["pred"].expanding().sum() / group_no_none["pred"].sum()
+    #group_no_none["f_score_init"] = (2 * group_no_none["precision"] * group_no_none["recall_init"]) / (group_no_none["precision"] + group_no_none["recall_init"])
+    #f_score_init = group_no_none["f_score_init"].max()
+
     max_index = np.where(group_no_none["f_score"] == f_score)[0][0]
     group_no_none = group_no_none[0:(max_index+1)] # Could be (max_index+k) with k>1 if the limit is risky maybe?
 
@@ -458,18 +461,16 @@ def groupby_optimised_pred(group):
     recall_none = group_no_none.iloc[-1]["recall"]
     f_score_none = (2 * precision_none * recall_none) / (precision_none + recall_none)
 
-    res = group_no_none.drop(["precision", "recall", "f_score"], axis=1)
-
+    res = group_no_none #.drop(["precision", "recall", "f_score"], axis=1)
     # Add none if it's worth it
     # 0.07 and not 0 because f_score is under-estimated, could be finest
-    if (none_gain - (f_score - f_score_none) >  0.07):
+    if none_gain - (f_score - f_score_none) > 0.07:
         res = pd.concat([res, group_none])
 
-    #if (none_gain > f_score + tresh):
-    if (none_gain > f_score):
+    if (none_gain > f_score + 0.0):
         res = group_none
 
-    #if (none_gain > group_no_none["pred"].values[0]): #Worsen score, need to understand why
+    #if (none_gain > group_no_none["pred"].values[0] + 0.11): #Worsen score, need to understand why
     #    res = group_none
 
     return res
