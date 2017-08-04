@@ -7,6 +7,7 @@ import timeit
 import pickle
 import gc
 import time
+from multiprocessing import Pool, cpu_count
 
 # Thanks for the inspiration
 # https://www.kaggle.com/paulantoine/light-gbm-benchmark-0-3692/code
@@ -537,14 +538,14 @@ def compute_fscore(df, df_pred):
 print("Score estimation")
 start = time.time()
 df_valid_pred = get_df_pred(df_valid, X_valid, df_valid_none, X_valid_none)
-df_valid_pred["group"] = df_valid_pred["user_id"].mod(12)
+df_valid_pred["group"] = df_valid_pred["user_id"].mod(cpu_count()*3)
 print(compute_fscore(df_valid, utils.applyParallel(df_valid_pred.groupby("group"), filter_maximize_expectation)))
 end = time.time()
 print("Le temps d'exécution :" + str(end - start))
 
 print("Generate submission")
 df_test_pred = get_df_pred(df_test, X_test, df_test_none, X_test_none)
-df_test_pred["group"] = df_test_pred["user_id"].mod(12)
+df_test_pred["group"] = df_test_pred["user_id"].mod(cpu_count()*3)
 # utils.applyParallel(df_test_pred.groupby("group"), filter_optimised_pred).\
 sub = utils.applyParallel(df_test_pred.groupby("group"), filter_maximize_expectation).\
     groupby("order_id")["product_id"].\
