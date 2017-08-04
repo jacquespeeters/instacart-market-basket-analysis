@@ -168,7 +168,7 @@ def benchmark(n=100, filename='runtimes.png'):
 
 #####################
 from sklearn.model_selection import ParameterGrid
-from ggplot import *
+#from ggplot import *
 import time
 import lightgbm as lgb
 import pandas as pd
