@@ -41,7 +41,7 @@ product2vec = pickle.load(open("product2vec.p", "rb"))
 print("Sample by user_id")
 user_id = orders["user_id"].unique()
 np.random.seed(seed=7)
-sample_user_id = np.random.choice(user_id, size=20000, replace=False).tolist()
+sample_user_id = np.random.choice(user_id, size=5000, replace=False).tolist()
 #orders = orders.query("user_id == @sample_user_id")
 
 ###
@@ -51,13 +51,13 @@ order_prior = pd.merge(orders, order_prior, on=["order_id"])
 order_train = pd.merge(orders, order_train, on=["order_id"])
 
 # Add last_basket_size
-#last_basket_size = order_prior.groupby(["user_id", "order_number_reverse"]).size().\
-#    rename("last_basket_size").reset_index()
-#last_basket_size["order_number_reverse"] = last_basket_size["order_number_reverse"] - 1
+last_basket_size = order_prior.groupby(["user_id", "order_number_reverse"]).size().\
+    rename("last_basket_size").reset_index()
+last_basket_size["order_number_reverse"] = last_basket_size["order_number_reverse"] - 1
 
-#orders = pd.merge(orders, last_basket_size, how="left", on=["user_id", "order_number_reverse"])
+orders = pd.merge(orders, last_basket_size, how="left", on=["user_id", "order_number_reverse"])
 
-#del last_basket_size
+del last_basket_size
 
 ### products_fe - Feature engineering on products
 print("Feature engineering on products")
@@ -424,12 +424,22 @@ param_none = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rat
 model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=10)
 # lgb.plot_importance(model_gbm_none, importance_type="gain")
 
+#param = {'objective': 'regression_l2', 'metric': ['rmse'], 'learning_rate':0.05, 'verbose': 0}
+#model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=10)
+
+#param_none = {'objective': 'regression_l2', 'metric': ['rmse'], 'learning_rate':0.05,\
+#              'num_leaves':3, 'min_data_in_leaf':500, 'verbose': 0}
+#model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=10)
+
+
 gc.collect()
 # Predict and submit -------------------------------------------------------------
 print('Predict and submit')
 def get_df_pred(df, X_df, df_none, X_df_none):
+    df = df.copy()
+    df_none = df_none.copy()
     df["pred"] = model_gbm.predict(X_df, num_iteration=model_gbm.best_iteration)
-    df_none["pred"] = model_gbm_none.predict(X_df_none, num_iteration=model_gbm_none.best_iteration)
+    df_none["pred"] = np.clip(model_gbm_none.predict(X_df_none, num_iteration=model_gbm_none.best_iteration), 0,1)
     df_none["product_id"] = "None"
     df_pred_none = df_none[["order_id", "user_id", "product_id", "pred"]].copy()
 
