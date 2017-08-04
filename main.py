@@ -42,7 +42,7 @@ print("Sample by user_id")
 user_id = orders["user_id"].unique()
 np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=5000, replace=False).tolist()
-#orders = orders.query("user_id == @sample_user_id")
+orders = orders.query("user_id == @sample_user_id")
 
 ###
 print("Add user_id to order_products__XXX ")
@@ -129,6 +129,8 @@ del products_organic
 
 ### user_fe - Feature engineering on user
 print("Feature engineering on user")
+orders.head()
+# TODO c'est pas bon et totalement useless ca
 users_fe = order_prior.\
     groupby("user_id").\
     agg({'reordered':{'U_rt_reordered':'mean'},\
@@ -180,7 +182,7 @@ user_fe_none["U_none_reordered_strike"] = user_fe_none["reordered"] * 1/2 ** (us
 
 user_fe_none = user_fe_none.\
     groupby("user_id"). \
-    agg({'reordered': {'U_none_reordered_mean': "mean", 'U_none_reordered_sum': "sum"}, \
+    agg({'reordered': {'U_none_reordered_mean': "mean"}, \
          'U_none_reordered_strike': {'U_none_reordered_strike': "sum"}})
 
 user_fe_none.columns = user_fe_none.columns.droplevel(0)
@@ -209,15 +211,6 @@ users_products.columns = users_products.columns.droplevel(0)
 users_products = users_products.reset_index()
 
 #users_products["UP_order_strike_rt"] = users_products["UP_order_strike"] / ((1 - 1/2**(users_products["up_first_order_number"] + 1))/(1-1/2) - 1)
-
-### users_products_none summary of users_products
-
-users_products_none = users_products.groupby("user_id").\
-    agg({'UP_date_strike' : {'O_date_strike_max' : "max", 'O_date_strike_sum' : "sum", 'O_date_strike_mean' : "mean"}, \
-         'UP_order_strike': {'O_order_strike_max': "max", 'O_order_strike_sum': "sum", 'O_date_order_mean': "mean"}})
-
-users_products_none.columns = users_products_none.columns.droplevel(0)
-users_products_none = users_products_none.reset_index()
 
 ### aisles
 print("Feature engineering on aisles")
@@ -351,11 +344,59 @@ def get_df(df):
 df_train = get_df(orders.query("eval_set == 'train'"))
 df_test = get_df(orders.query("eval_set == 'test'"))
 
+### Feature engineering on predicted basket
+print("Feature engineering on predicted basket")
+def get_mult_none(df, X_df, model_gbm):
+    df_pred = df[["order_id", "user_id"]].copy()
+    df_pred["pred"] = model_gbm.predict(X_df, num_iteration=model_gbm.best_iteration)
+    df_pred["pred_minus"] = 1 - df_pred["pred"]
 
+    df_pred = df_pred.groupby(["order_id", "user_id"]). \
+        agg({'pred_minus': {'pred_none_prod': "prod"}, \
+             'pred': {'pred_basket_sum': "sum", 'pred_basket_std':'std'}})
+
+    df_pred.columns = df_pred.columns.droplevel(0)
+    df_pred = df_pred.reset_index()
+
+    return df_pred
+
+def get_mult_none_cv(df_full, df_test, nfold=5):
+    df_full["fold"] = df_full["user_id"].mod(nfold)
+
+    to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name", "department", "aisle", \
+               "order_number_reverse", "date", "UP_days_no-reordered"]
+
+    res=[]
+    for fold in range(nfold):
+        print("Folder: " + str(fold))
+        df_valid = df_full.query("fold == @fold").drop("fold", axis=1)
+        df_train = df_full.query("fold != @fold").drop("fold", axis=1)
+        X_train = df_train.drop(to_drop + ["reordered"], axis=1)
+        X_valid = df_valid.drop(to_drop + ["reordered"], axis=1)
+        y_train = df_train["reordered"]
+        y_valid = df_valid["reordered"]
+
+        lgb_train = lgb.Dataset(X_train, label=y_train)
+        lgb_valid = lgb.Dataset(X_valid, label=y_valid)
+        param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0}
+        model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150,
+                              verbose_eval=0)
+        res.append(get_mult_none(df_valid, X_valid, model_gbm))
+
+        if fold == nfold:
+            X_test = df_test.drop(to_drop, axis=1)
+            res.append(get_mult_none(df_test, X_test, model_gbm))
+
+    res = pd.concat(res)
+    return res
+
+mult_none_cv = get_mult_none_cv(df_train, df_test)
+
+print("Create dataset which we'll learn on for None")
 def get_df_none(df):
     df_set = pd.merge(df, order_none, on=["order_id", "user_id"], how="left")
     df_set = pd.merge(df_set, users_fe, on="user_id", how="left")
-    df_set = pd.merge(df_set, users_products_none, on="user_id", how="left")
+    df_set = pd.merge(df_set, mult_none_cv, on=["order_id", "user_id"], how="left")
     df_set["O_days_since_prior_order_diff"] = df_set["days_since_prior_order"] - df_set["U_days_since_mean"]
     df_set["O_days_since_prior_order_rt"] = df_set["days_since_prior_order"] / df_set["U_days_since_mean"]
     return df_set
@@ -363,8 +404,8 @@ def get_df_none(df):
 df_train_none = get_df_none(orders.query("eval_set == 'train'"))
 df_test_none = get_df_none(orders.query("eval_set == 'test'"))
 
-del aisles, aisles_fe, departments, departments_fe, order_none, order_prior, order_train, orders, \
-    product2vec, products, products_fe, up_fe2, users_products, users_fe, user_past_product, users_products_none
+#del aisles, aisles_fe, departments, departments_fe, order_none, order_prior, order_train, orders, \
+#    product2vec, products, products_fe, up_fe2, users_products, users_fe, user_past_product, users_products_none
 gc.collect()
 
 # Sample by user_id ----------------------------------------
@@ -403,6 +444,7 @@ model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid
 # feature_importance.head()
 
 gc.collect()
+
 # Modeling None -----------------------
 sample_index_none = df_train_none.query("user_id == @sample_user_id").index
 df_valid_none = df_train_none.ix[sample_index_none]
@@ -423,14 +465,6 @@ param_none = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rat
               'num_leaves':3, 'min_data_in_leaf':500, 'verbose': 0}
 model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=10)
 # lgb.plot_importance(model_gbm_none, importance_type="gain")
-
-#param = {'objective': 'regression_l2', 'metric': ['rmse'], 'learning_rate':0.05, 'verbose': 0}
-#model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=10)
-
-#param_none = {'objective': 'regression_l2', 'metric': ['rmse'], 'learning_rate':0.05,\
-#              'num_leaves':3, 'min_data_in_leaf':500, 'verbose': 0}
-#model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=10)
-
 
 gc.collect()
 # Predict and submit -------------------------------------------------------------
