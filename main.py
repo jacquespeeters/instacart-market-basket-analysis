@@ -50,13 +50,13 @@ order_prior = pd.merge(orders, order_prior, on=["order_id"])
 order_train = pd.merge(orders, order_train, on=["order_id"])
 
 # Add last_basket_size
-last_basket_size = order_prior.groupby(["user_id", "order_number_reverse"]).size().\
-    rename("last_basket_size").reset_index()
-last_basket_size["order_number_reverse"] = last_basket_size["order_number_reverse"] - 1
+#last_basket_size = order_prior.groupby(["user_id", "order_number_reverse"]).size().\
+#    rename("last_basket_size").reset_index()
+#last_basket_size["order_number_reverse"] = last_basket_size["order_number_reverse"] - 1
 
-orders = pd.merge(orders, last_basket_size, how="left", on=["user_id", "order_number_reverse"])
+#orders = pd.merge(orders, last_basket_size, how="left", on=["user_id", "order_number_reverse"])
 
-del last_basket_size
+#del last_basket_size
 
 ### products_fe - Feature engineering on products
 print("Feature engineering on products")
@@ -485,6 +485,33 @@ def filter_optimised_pred(df):
     return df
 
 
+def filter_maximize_expectation(df):
+    df["is_none"] = (df["product_id"] == 'None').astype(int)
+    df = df.sort_values(["is_none", "pred"], ascending=False).drop("is_none", axis=1)
+    df = df. \
+        groupby("user_id"). \
+        apply(groupby_maximize_expectation).reset_index(drop=True)
+    return df
+
+
+def groupby_maximize_expectation(group):
+    group_none = group.iloc[0:1]
+    none_gain = group_none["pred"].values[0]
+    group_no_none = group.iloc[1:]
+    pred = group_no_none["pred"].values
+    # Avoid weird llvm bug with numba
+    if pred.shape[0] == 1:
+        pred = np.append(pred, 0)
+
+    best_k, predNone, max_f1 = utils.F1Optimizer.maximize_expectation(pred, none_gain)
+
+    res = group_no_none.iloc[:best_k]
+    if predNone:
+        res = pd.concat([res, group_none])
+
+    return res
+
+
 def compute_fscore(df, df_pred):
     df_none_true = df. \
         groupby(["order_id", "user_id"])["reordered"].sum().\
@@ -508,15 +535,18 @@ def compute_fscore(df, df_pred):
     return res.mean()
 
 print("Score estimation")
+start = time.time()
 df_valid_pred = get_df_pred(df_valid, X_valid, df_valid_none, X_valid_none)
 df_valid_pred["group"] = df_valid_pred["user_id"].mod(12)
-print(compute_fscore(df_valid, utils.applyParallel(df_valid_pred.groupby("group"), filter_optimised_pred)))
+print(compute_fscore(df_valid, utils.applyParallel(df_valid_pred.groupby("group"), filter_maximize_expectation)))
+end = time.time()
+print("Le temps d'exécution :" + str(end - start))
 
 print("Generate submission")
 df_test_pred = get_df_pred(df_test, X_test, df_test_none, X_test_none)
 df_test_pred["group"] = df_test_pred["user_id"].mod(12)
-
-sub = utils.applyParallel(df_test_pred.groupby("group"), filter_optimised_pred).\
+# utils.applyParallel(df_test_pred.groupby("group"), filter_optimised_pred).\
+sub = utils.applyParallel(df_test_pred.groupby("group"), filter_maximize_expectation).\
     groupby("order_id")["product_id"].\
     apply(lambda col: col.astype(str).str.cat(sep=' ')).rename("products").reset_index()
 
@@ -526,3 +556,5 @@ sub = sub.fillna('None')
 sub.columns = ['order_id', 'products']
 sub.to_csv('./sub.csv', index=False)
 gc.collect()
+
+
