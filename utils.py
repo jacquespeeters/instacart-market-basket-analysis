@@ -164,3 +164,39 @@ def benchmark(n=100, filename='runtimes.png'):
     plt.xlabel('n = |P|')
     plt.ylabel('time in seconds')
     plt.gcf().savefig(filename)
+
+
+#####################
+from sklearn.model_selection import ParameterGrid
+from ggplot import *
+import time
+import lightgbm as lgb
+import pandas as pd
+
+
+def grid_search(lgb_train, lgb_valid, param_grid):
+    """"
+    param_grid = {'eta': [0.1], 'max_depth': [4, 6], 'subsample': [0.8, 1]}
+    grid_search(lgb_train, lgb_valid, param_grid)
+    """
+    grid = ParameterGrid(param_grid)
+    data = pd.DataFrame(list(grid))
+    data['time'] = 0
+    data['best_score'] = 0
+    data['best_iter'] = 0
+
+    for i, params in enumerate(grid):
+        print("Etape " + str(i + 1))
+        start = time.time()
+        #ipdb.set_trace()
+        model = lgb.train(params, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid],
+                          early_stopping_rounds=150, verbose_eval=50)
+
+        end = time.time()
+        data.loc[i,'time'] = end - start
+        data.loc[i,'best_score'] = model.best_score['valid_1'][params['metric']]
+        data.loc[i,'best_iter'] = model.best_iteration
+    return data
+
+
+
