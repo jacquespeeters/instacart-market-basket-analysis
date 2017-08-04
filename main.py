@@ -24,7 +24,7 @@ products = pd.read_csv("./data/products.csv")
 # Fucking slow :/ - So i pickled it
 # Way faster & easier with dplyr...
 def add_fe_to_orders(group):
-    group["date"] = group.ix[::-1, 'days_since_prior_order'].cumsum()[::-1].shift(-1).fillna(0)
+    group["date"] = group.iloc[::-1]['days_since_prior_order'].cumsum()[::-1].shift(-1).fillna(0)
     max_group = group["order_number"].max()
     group["order_number_reverse"] = max_group - group["order_number"]
     return group
@@ -121,7 +121,7 @@ products_fe = pd.merge(products_fe, product_freq, how="left", on="product_id")
 
 del product_freq
 
-# Doesn't seem to help
+# Doesn't seem to help much?
 products_organic = products[["product_id", "product_name"]].copy()
 products_organic["organic_bool"] = products["product_name"].str.match("organic", case=False).astype('int')
 products_fe = pd.merge(products_fe, products_organic.drop("product_name", axis=1), how="left", on="product_id")
@@ -129,15 +129,10 @@ del products_organic
 
 ### user_fe - Feature engineering on user
 print("Feature engineering on user")
-orders.head()
-# TODO c'est pas bon et totalement useless ca
 users_fe = order_prior.\
     groupby("user_id").\
     agg({'reordered':{'U_rt_reordered':'mean'},\
-         'date':{'U_date_inscription':'max'},\
-         'days_since_prior_order': {'U_days_since_mean': 'mean', \
-                                   'U_days_since_std': 'std', \
-                                   'U_days_since_sum': 'sum'}})
+         'date':{'U_date_inscription':'max'}})
 
 users_fe.columns = users_fe.columns.droplevel(0)
 users_fe = users_fe.reset_index()
@@ -164,6 +159,18 @@ users_fe4 = up_fe2.groupby('user_id')["bool_reordered"].\
 
 users_fe = pd.merge(users_fe, users_fe4, on="user_id")
 del users_fe4
+
+users_fe5 = orders.query("order_number_reverse != 0").\
+    groupby("user_id").\
+        agg({'date':{'U_date_inscription':'max'},\
+             'days_since_prior_order': {'U_days_since_mean': 'mean', \
+                                       'U_days_since_std': 'std'}})
+
+users_fe5.columns = users_fe5.columns.droplevel(0)
+users_fe5 = users_fe5.reset_index()
+
+users_fe = pd.merge(users_fe, users_fe5, on="user_id")
+del users_fe5
 
 # TODO U_none_reordered_strike
 # New way
@@ -417,7 +424,7 @@ sample_user_id = np.random.choice(user_id, size=int(len(user_id)*0.20), replace=
 # Modeling -----------------------------------
 # Sampling takes time -_-
 sample_index = df_train.query("user_id == @sample_user_id").index
-df_valid = df_train.ix[sample_index]
+df_valid = df_train.iloc[sample_index]
 df_train = df_train.drop(sample_index)
 
 # TODO try to not drop order_id
@@ -447,7 +454,7 @@ gc.collect()
 
 # Modeling None -----------------------
 sample_index_none = df_train_none.query("user_id == @sample_user_id").index
-df_valid_none = df_train_none.ix[sample_index_none]
+df_valid_none = df_train_none.iloc[sample_index_none]
 df_train_none = df_train_none.drop(sample_index_none)
 
 to_drop_none = ["order_id", "user_id", "eval_set", "date"]
