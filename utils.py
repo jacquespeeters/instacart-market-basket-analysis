@@ -571,9 +571,8 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
         lgb_train = lgb.Dataset(X_train, label=y_train)
         lgb_valid = lgb.Dataset(X_valid, label=y_valid)
         param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0}
-        model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150,
+        model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=250,
                               verbose_eval=0)
-        ipdb.set_trace()
         res.append(get_mult_none(df_valid, X_valid, model_gbm))
 
         if fold == nfold:
@@ -587,7 +586,7 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
 def get_df_none(df, order_none, users_fe, users_products_none, mult_none_cv):
     df_set = pd.merge(df, order_none, on=["order_id", "user_id"], how="left")
     df_set = pd.merge(df_set, users_fe, on="user_id", how="left")
-    df_set = pd.merge(df_set, users_products_none, on="user_id", how="left")
+    #df_set = pd.merge(df_set, users_products_none, on="user_id", how="left")
     df_set = pd.merge(df_set, mult_none_cv, on=["order_id", "user_id"], how="left")
     df_set["O_days_since_prior_order_diff"] = df_set["days_since_prior_order"] - df_set["U_days_since_mean"]
     df_set["O_days_since_prior_order_rt"] = df_set["days_since_prior_order"] / df_set["U_days_since_mean"]
