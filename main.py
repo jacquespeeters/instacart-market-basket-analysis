@@ -56,7 +56,7 @@ del last_basket_size
 
 ### products_fe - Feature engineering on products
 print("Feature engineering on products")
-products_fe = utils.get_products_fe(order_prior)
+#products_fe = utils.get_products_fe(order_prior)
 
 NFOLD = 5
 products_fe_mod = utils.get_products_fe_mod(order_prior, order_train, nfold=NFOLD)
@@ -64,7 +64,7 @@ products_fe_mod = utils.get_products_fe_mod(order_prior, order_train, nfold=NFOL
 # Doesn't seem to help much?
 products_organic = products[["product_id", "product_name"]].copy()
 products_organic["organic_bool"] = products["product_name"].str.match("organic", case=False).astype('int')
-products_fe = pd.merge(products_fe, products_organic.drop("product_name", axis=1), how="left", on="product_id")
+products_fe = pd.merge(products_fe_mod, products_organic.drop("product_name", axis=1), how="left", on="product_id")
 del products_organic
 
 ### user_fe - Feature engineering on user
