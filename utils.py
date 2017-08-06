@@ -199,6 +199,8 @@ def grid_search(lgb_train, lgb_valid, param_grid):
     return data
 
 #########
+# Fucking slow :/ - So i pickled it
+# Way faster & easier with dplyr...
 def add_fe_to_orders(group):
     group["date"] = group.iloc[::-1]['days_since_prior_order'].cumsum()[::-1].shift(-1).fillna(0)
     max_group = group["order_number"].max()

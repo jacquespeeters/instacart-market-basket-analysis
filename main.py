@@ -13,16 +13,12 @@ from multiprocessing import Pool, cpu_count
 # https://www.kaggle.com/paulantoine/light-gbm-benchmark-0-3692/code
 
 # Read data -----------------------------
-# TODO function to read csv
 aisles = pd.read_csv("./data/aisles.csv")
 departments = pd.read_csv("./data/departments.csv")
 order_prior = pd.read_csv("./data/order_products__prior.csv")
 order_train = pd.read_csv("./data/order_products__train.csv")
 orders = pd.read_csv("./data/orders.csv")
 products = pd.read_csv("./data/products.csv")
-
-# Fucking slow :/ - So i pickled it
-# Way faster & easier with dplyr...
 
 #orders = orders.groupby("user_id").\
 #    apply(utils.add_fe_to_orders)
@@ -41,7 +37,6 @@ orders = orders.query("user_id == @sample_user_id")
 
 ###
 print("Add user_id to order_products__XXX ")
-
 order_prior = pd.merge(orders, order_prior, on=["order_id"])
 order_train = pd.merge(orders, order_train, on=["order_id"])
 
@@ -117,7 +112,7 @@ df_test = utils.get_df(orders.query("eval_set == 'test'"), user_past_product, us
 ### Feature engineering on predicted basket
 print("Feature engineering on predicted basket")
 
-#print("get_mult_none_cv")
+print("get_mult_none_cv")
 #mult_none_cv = utils.get_mult_none_cv(df_train, df_test)
 
 print("Create dataset which we'll learn on for None")
