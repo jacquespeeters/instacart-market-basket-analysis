@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from multiprocessing import Pool, cpu_count
+import ipdb
 
 # Thanks to https://www.kaggle.com/onodera/multilabel-fscore
 def multilabel_fscore(y_true, y_pred):
@@ -289,8 +290,7 @@ def get_products_fe_mod(order_prior, order_train, nfold=5):
 def get_users_fe(orders, order_prior):
     users_fe = order_prior. \
         groupby("user_id"). \
-        agg({'reordered': {'U_rt_reordered': 'mean'}, \
-             'date': {'U_date_inscription': 'max'}})
+        agg({'reordered': {'U_rt_reordered': 'mean'}})
 
     users_fe.columns = users_fe.columns.droplevel(0)
     users_fe = users_fe.reset_index()
@@ -562,7 +562,7 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
     for fold in range(nfold):
         print("Folder: " + str(fold))
         df_valid = df_full.query("fold == @fold").drop("fold", axis=1)
-        df_train = df_full.query("fold != @fold").drop("fold", axis=1)
+        df_train = df_full.query("fold !=  @fold").drop("fold", axis=1)
         X_train = df_train.drop(to_drop + ["reordered"], axis=1)
         X_valid = df_valid.drop(to_drop + ["reordered"], axis=1)
         y_train = df_train["reordered"]
@@ -573,21 +573,22 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
         param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0}
         model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150,
                               verbose_eval=0)
+        ipdb.set_trace()
         res.append(get_mult_none(df_valid, X_valid, model_gbm))
 
         if fold == nfold:
-            X_test = df_test.drop(to_drop, axis=1)
+            X_test = df_test.drop(to_drop + ["reordered"], axis=1)
             res.append(get_mult_none(df_test, X_test, model_gbm))
 
     res = pd.concat(res)
     return res
 
 
-def get_df_none(df, order_none, users_fe, users_products_none):
+def get_df_none(df, order_none, users_fe, users_products_none, mult_none_cv):
     df_set = pd.merge(df, order_none, on=["order_id", "user_id"], how="left")
     df_set = pd.merge(df_set, users_fe, on="user_id", how="left")
     df_set = pd.merge(df_set, users_products_none, on="user_id", how="left")
-    #df_set = pd.merge(df_set, mult_none_cv, on=["order_id", "user_id"], how="left")
+    df_set = pd.merge(df_set, mult_none_cv, on=["order_id", "user_id"], how="left")
     df_set["O_days_since_prior_order_diff"] = df_set["days_since_prior_order"] - df_set["U_days_since_mean"]
     df_set["O_days_since_prior_order_rt"] = df_set["days_since_prior_order"] / df_set["U_days_since_mean"]
     return df_set
