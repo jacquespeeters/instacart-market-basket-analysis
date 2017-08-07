@@ -101,7 +101,7 @@ order_none = utils.get_order_none(order_train)
 
 # Create dataset which we'll learn on -------------------------------------------------
 print("Create dataset which we'll learn on")
-df_train = utils.get_df(orders.query("eval_set == 'train'"), user_past_product, users_fe, products_fe_mod, products, aisles,
+df_full = utils.get_df(orders.query("eval_set == 'train'"), user_past_product, users_fe, products_fe_mod, products, aisles,
            aisles_fe, departments, departments_fe, users_products, product2vec, user_aisle_fe,
            user_department_fe, nfold=NFOLD)
 
@@ -113,10 +113,10 @@ df_test = utils.get_df(orders.query("eval_set == 'test'"), user_past_product, us
 print("Feature engineering on predicted basket")
 
 print("get_mult_none_cv")
-mult_none_cv = utils.get_mult_none_cv(df_train, df_test)
+mult_none_cv = utils.get_mult_none_cv(df_full, df_test)
 
 print("Create dataset which we'll learn on for None")
-df_train_none = utils.get_df_none(orders.query("eval_set == 'train'"), order_none, users_fe, users_products_none, mult_none_cv)
+df_full_none = utils.get_df_none(orders.query("eval_set == 'train'"), order_none, users_fe, users_products_none, mult_none_cv)
 df_test_none = utils.get_df_none(orders.query("eval_set == 'test'"), order_none, users_fe, users_products_none, mult_none_cv)
 
 #del aisles, aisles_fe, departments, departments_fe, order_none, order_prior, order_train, orders, \
@@ -124,16 +124,11 @@ df_test_none = utils.get_df_none(orders.query("eval_set == 'test'"), order_none,
 gc.collect()
 
 # Sample by user_id ----------------------------------------
-print("Sample by user_id")
-user_id = df_train["user_id"].unique()
-np.random.seed(seed=7)
-sample_user_id = np.random.choice(user_id, size=int(len(user_id)*0.05), replace=False).tolist()
+valid_fold = 20
 
 # Modeling -----------------------------------
-# Sampling takes time -_-
-sample_index = df_train.query("user_id == @sample_user_id").index
-df_valid = df_train.iloc[sample_index]
-df_train = df_train.drop(sample_index)
+df_valid = df_full.query("user_id % @valid_fold == 0")
+df_train = df_full.query("user_id % @valid_fold != 0")
 
 to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name","department", "aisle", \
            "order_number_reverse", "date", "UP_days_no-reordered"]
@@ -160,9 +155,8 @@ model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid
 gc.collect()
 
 # Modeling None -----------------------
-sample_index_none = df_train_none.query("user_id == @sample_user_id").index
-df_valid_none = df_train_none.iloc[sample_index_none]
-df_train_none = df_train_none.drop(sample_index_none)
+df_valid_none = df_full_none.query("user_id % @valid_fold == 0")
+df_train_none = df_full_none.query("user_id % @valid_fold != 0")
 
 to_drop_none = ["order_id", "user_id", "eval_set", "date"]
 
