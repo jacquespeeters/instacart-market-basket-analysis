@@ -70,10 +70,6 @@ users_fe = utils.get_users_fe(orders, order_prior)
 print("Feature engineering on User_product")
 users_products = utils.get_users_products(order_prior)
 
-### users_products_none summary of users_products
-print("Feature engineering on users_products_none")
-users_products_none = utils.get_users_products_none(users_products)
-
 ### aisles
 print("Feature engineering on aisles")
 aisles_fe = utils.get_aisles_fe(order_prior, products, aisles)
@@ -113,11 +109,11 @@ df_test = utils.get_df(orders.query("eval_set == 'test'"), user_past_product, us
 print("Feature engineering on predicted basket")
 
 print("get_mult_none_cv")
-mult_none_cv = utils.get_mult_none_cv(df_full, df_test)
+mult_none_cv = utils.get_mult_none_cv(df_full, df_test, nfold=5)
 
 print("Create dataset which we'll learn on for None")
-df_full_none = utils.get_df_none(orders.query("eval_set == 'train'"), order_none, users_fe, users_products_none, mult_none_cv)
-df_test_none = utils.get_df_none(orders.query("eval_set == 'test'"), order_none, users_fe, users_products_none, mult_none_cv)
+df_full_none = utils.get_df_none(orders.query("eval_set == 'train'"), order_none, users_fe, mult_none_cv)
+df_test_none = utils.get_df_none(orders.query("eval_set == 'test'"), order_none, users_fe, mult_none_cv)
 
 #del aisles, aisles_fe, departments, departments_fe, order_none, order_prior, order_train, orders, \
 #    product2vec, products, products_fe, up_fe2, users_products, users_fe, user_past_product, users_products_none

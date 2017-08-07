@@ -558,6 +558,10 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
                "order_number_reverse", "date", "UP_days_no-reordered"]
 
     res=[]
+    res_test = []
+
+    X_test = df_test.drop(to_drop + ["reordered"], axis=1)
+
     for fold in range(nfold):
         print("Folder: " + str(fold))
         df_valid = df_full.query("fold == @fold").drop("fold", axis=1)
@@ -573,19 +577,18 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
         model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=250,
                               verbose_eval=100)
         res.append(get_mult_none(df_valid, X_valid, model_gbm))
-
-        if fold == nfold - 1:
-            X_test = df_test.drop(to_drop + ["reordered"], axis=1)
-            res.append(get_mult_none(df_test, X_test, model_gbm))
+        res_test.append(get_mult_none(df_test, X_test, model_gbm))
 
     res = pd.concat(res)
+    res_test = pd.concat(res_test)
+    res_test = res_test.groupby(["order_id", "user_id"]).mean().reset_index()
+    res = pd.concat([res, res_test])
     return res
 
 
-def get_df_none(df, order_none, users_fe, users_products_none, mult_none_cv):
+def get_df_none(df, order_none, users_fe, mult_none_cv):
     df_set = pd.merge(df, order_none, on=["order_id", "user_id"], how="left")
     df_set = pd.merge(df_set, users_fe, on="user_id", how="left")
-    #df_set = pd.merge(df_set, users_products_none, on="user_id", how="left")
     df_set = pd.merge(df_set, mult_none_cv, on=["order_id", "user_id"], how="left")
     df_set["O_days_since_prior_order_diff"] = df_set["days_since_prior_order"] - df_set["U_days_since_mean"]
     df_set["O_days_since_prior_order_rt"] = df_set["days_since_prior_order"] / df_set["U_days_since_mean"]
