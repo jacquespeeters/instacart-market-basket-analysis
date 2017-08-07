@@ -571,10 +571,10 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
         lgb_valid = lgb.Dataset(X_valid, label=y_valid)
         param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0}
         model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=250,
-                              verbose_eval=0)
+                              verbose_eval=100)
         res.append(get_mult_none(df_valid, X_valid, model_gbm))
 
-        if fold == nfold:
+        if fold == nfold - 1:
             X_test = df_test.drop(to_drop + ["reordered"], axis=1)
             res.append(get_mult_none(df_test, X_test, model_gbm))
 
