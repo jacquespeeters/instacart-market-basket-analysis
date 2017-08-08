@@ -586,14 +586,18 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
     return res
 
 
-def get_df_none(df, order_none, users_fe, mult_none_cv):
+def get_df_none(df, order_none, users_fe):
     df_set = pd.merge(df, order_none, on=["order_id", "user_id"], how="left")
     df_set = pd.merge(df_set, users_fe, on="user_id", how="left")
-    df_set = pd.merge(df_set, mult_none_cv, on=["order_id", "user_id"], how="left")
+    #df_set = pd.merge(df_set, mult_none_cv, on=["order_id", "user_id"], how="left")
     df_set["O_days_since_prior_order_diff"] = df_set["days_since_prior_order"] - df_set["U_days_since_mean"]
     df_set["O_days_since_prior_order_rt"] = df_set["days_since_prior_order"] / df_set["U_days_since_mean"]
     return df_set
 
+
+def get_df_none_add(df_set, mult_none_cv):
+    df_set = pd.merge(df_set, mult_none_cv, on=["order_id", "user_id"], how="left")
+    return df_set
 
 def get_df_pred(df, X_df, df_none, X_df_none, model_gbm, model_gbm_none):
     df = df.copy()
