@@ -23,6 +23,13 @@ products = pd.read_csv("./data/products.csv")
 orders = pickle.load(open("orders.p", "rb"))
 product2vec = pickle.load(open("product2vec.p", "rb"))
 
+print("Sample by user_id")
+user_id = orders["user_id"].unique()
+np.random.seed(seed=7)
+sample_user_id = np.random.choice(user_id, size=5000, replace=False).tolist()
+orders = orders.query("user_id == @sample_user_id")
+
+
 def correct_orders(orders):
     new_orders = orders.query("order_number_reverse !=0").copy()
     df = orders.\

@@ -110,6 +110,11 @@ print("Create dataset which we'll learn on for None")
 df_full_none = utils.get_df_none(orders.query("eval_set == 'train'"), order_none, users_fe)
 df_test_none = utils.get_df_none(orders.query("eval_set == 'test'"), order_none, users_fe)
 
+print("Add old dataset")
+df_full_old = pd.read_pickle("df_full_old.p")
+df_full_none_old = pd.read_pickle("df_full_none_old.p")
+df_full, df_full_none = utils.add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old)
+
 ### Feature engineering on predicted basket
 print("Feature engineering on predicted basket")
 mult_none_cv = utils.get_mult_none_cv(df_full, df_test, nfold=5)
@@ -126,6 +131,7 @@ gc.collect()
 valid_fold = 20
 
 # Modeling -----------------------------------
+# TODO split on order_id
 df_valid = df_full.query("user_id % @valid_fold == 0")
 df_train = df_full.query("user_id % @valid_fold != 0")
 

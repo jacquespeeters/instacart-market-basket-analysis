@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from multiprocessing import Pool, cpu_count
+import os.path
 
 # Thanks to https://www.kaggle.com/onodera/multilabel-fscore
 def multilabel_fscore(y_true, y_pred):
@@ -548,6 +549,12 @@ def get_mult_none(df, X_df, model_gbm):
     df_pred = df_pred.reset_index()
 
     return df_pred
+
+
+def add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old):
+    df_full = pd.concat([df_full, df_full_old])
+    df_full_none = pd.concat([df_full_none, df_full_none_old])
+    return df_full, df_full_none
 
 
 def get_mult_none_cv(df_full, df_test, nfold=5):
