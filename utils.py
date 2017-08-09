@@ -553,8 +553,12 @@ def get_mult_none(df, X_df, model_gbm):
 
 
 def add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old):
+    df_col = df_full.columns.tolist()
+    df_col_none = df_full_none.columns.tolist()
     df_full = pd.concat([df_full, df_full_old])
     df_full_none = pd.concat([df_full_none, df_full_none_old])
+    df_full = df_full[df_col]
+    df_full_none = df_full_none[df_col_none]
     return df_full, df_full_none
 
 
