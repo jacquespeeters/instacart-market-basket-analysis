@@ -113,6 +113,10 @@ df_test_none = utils.get_df_none(orders.query("eval_set == 'test'"), order_none,
 print("Add old dataset")
 df_full_old = pd.read_pickle("df_full_old.p")
 df_full_none_old = pd.read_pickle("df_full_none_old.p")
+
+print(df_full.columns == df_full_old.columns)
+print(df_full_none.columns == df_full_none_old.columns)
+
 df_full, df_full_none = utils.add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old)
 del df_full_old, df_full_none_old
 gc.collect()
@@ -151,7 +155,7 @@ print("Training model")
 lgb_train = lgb.Dataset(X_train, label=y_train)
 lgb_valid = lgb.Dataset(X_valid, label=y_valid)
 param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05, 'verbose': 0}
-model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=10)
+model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=50)
 #lgb.plot_importance(model_gbm, importance_type="gain")
 #feature_importance = pd.DataFrame(model_gbm.feature_name())
 #feature_importance.columns = ["Feature"]
@@ -178,7 +182,7 @@ lgb_train_none = lgb.Dataset(X_train_none, label=y_train_none, max_bin=100)
 lgb_valid_none = lgb.Dataset(X_valid_none, label=y_valid_none, max_bin=100)
 param_none = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05,\
               'num_leaves':3, 'min_data_in_leaf':500, 'verbose': 0}
-model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=10)
+model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=50)
 # lgb.plot_importance(model_gbm_none, importance_type="gain")
 
 gc.collect()
