@@ -114,6 +114,8 @@ print("Add old dataset")
 df_full_old = pd.read_pickle("df_full_old.p")
 df_full_none_old = pd.read_pickle("df_full_none_old.p")
 df_full, df_full_none = utils.add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old)
+del df_full_old, df_full_none_old
+gc.collect()
 
 ### Feature engineering on predicted basket
 print("Feature engineering on predicted basket")

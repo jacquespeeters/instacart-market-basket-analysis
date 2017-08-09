@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from multiprocessing import Pool, cpu_count
 import os.path
+import gc
 
 # Thanks to https://www.kaggle.com/onodera/multilabel-fscore
 def multilabel_fscore(y_true, y_pred):
@@ -558,9 +559,6 @@ def add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old):
 
 
 def get_mult_none_cv(df_full, df_test, nfold=5):
-    df_full = df_full.copy()
-    df_full["fold"] = df_full["user_id"].mod(nfold)
-
     to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name", "department", "aisle", \
                "order_number_reverse", "date", "UP_days_no-reordered"]
 
@@ -571,8 +569,8 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
 
     for fold in range(nfold):
         print("Folder: " + str(fold))
-        df_valid = df_full.query("fold == @fold").drop("fold", axis=1)
-        df_train = df_full.query("fold !=  @fold").drop("fold", axis=1)
+        df_valid = df_full.query("(user_id % @nfold) == @fold")
+        df_train = df_full.query("(user_id % @nfold) !=  @fold")
         X_train = df_train.drop(to_drop + ["reordered"], axis=1)
         X_valid = df_valid.drop(to_drop + ["reordered"], axis=1)
         y_train = df_train["reordered"]
@@ -585,6 +583,8 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
                               verbose_eval=100)
         res.append(get_mult_none(df_valid, X_valid, model_gbm))
         res_test.append(get_mult_none(df_test, X_test, model_gbm))
+        del lgb_train, lgb_valid, model_gbm
+        gc.collect()
 
     res = pd.concat(res)
     res_test = pd.concat(res_test)
