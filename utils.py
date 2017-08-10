@@ -176,7 +176,7 @@ import lightgbm as lgb
 import pandas as pd
 
 
-def grid_search(lgb_train, lgb_valid, param_grid):
+def grid_search(lgb_train, lgb_valid, param_grid, early_stopping_rounds=150):
     """"
     param_grid = {'eta': [0.1], 'max_depth': [4, 6], 'subsample': [0.8, 1]}
     grid_search(lgb_train, lgb_valid, param_grid)
@@ -192,7 +192,7 @@ def grid_search(lgb_train, lgb_valid, param_grid):
         start = time.time()
         #ipdb.set_trace()
         model = lgb.train(params, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid],
-                          early_stopping_rounds=150, verbose_eval=50)
+                          early_stopping_rounds=early_stopping_rounds, verbose_eval=50)
 
         end = time.time()
         data.loc[i,'time'] = end - start
@@ -552,16 +552,6 @@ def get_mult_none(df, X_df, model_gbm):
     return df_pred
 
 
-def add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old):
-    df_col = df_full.columns.tolist()
-    df_col_none = df_full_none.columns.tolist()
-    df_full = pd.concat([df_full, df_full_old])
-    df_full_none = pd.concat([df_full_none, df_full_none_old])
-    df_full = df_full[df_col]
-    df_full_none = df_full_none[df_col_none]
-    return df_full, df_full_none
-
-
 def get_mult_none_cv(df_full, df_test, nfold=5):
     to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name", "department", "aisle", \
                "order_number_reverse", "date", "UP_days_no-reordered"]
@@ -582,7 +572,8 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
 
         lgb_train = lgb.Dataset(X_train, label=y_train)
         lgb_valid = lgb.Dataset(X_valid, label=y_valid)
-        param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0}
+        param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.05, 'verbose': 0,
+                 'num_leaves': 8, 'min_sum_hessian_in_leaf': 512}
         model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=250,
                               verbose_eval=100)
         res.append(get_mult_none(df_valid, X_valid, model_gbm))
@@ -595,6 +586,16 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
     res_test = res_test.groupby(["order_id", "user_id"]).mean().reset_index()
     res = pd.concat([res, res_test])
     return res
+
+
+def add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old):
+    df_col = df_full.columns.tolist()
+    df_col_none = df_full_none.columns.tolist()
+    df_full = pd.concat([df_full, df_full_old])
+    df_full_none = pd.concat([df_full_none, df_full_none_old])
+    df_full = df_full[df_col]
+    df_full_none = df_full_none[df_col_none]
+    return df_full, df_full_none
 
 
 def get_df_none(df, order_none, users_fe):

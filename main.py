@@ -33,7 +33,7 @@ print("Sample by user_id")
 user_id = orders["user_id"].unique()
 np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=5000, replace=False).tolist()
-orders = orders.query("user_id == @sample_user_id")
+#orders = orders.query("user_id == @sample_user_id")
 
 ###
 print("Add user_id to order_products__XXX ")
@@ -111,14 +111,10 @@ df_full_none = utils.get_df_none(orders.query("eval_set == 'train'"), order_none
 df_test_none = utils.get_df_none(orders.query("eval_set == 'test'"), order_none, users_fe)
 
 print("Add old dataset")
-df_full_old = pd.read_pickle("df_full_old.p")
-df_full_none_old = pd.read_pickle("df_full_none_old.p")
-
-print(df_full.columns == df_full_old.columns)
-print(df_full_none.columns == df_full_none_old.columns)
-
-df_full, df_full_none = utils.add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old)
-del df_full_old, df_full_none_old
+#df_full_old = pd.read_pickle("df_full_old.p")
+#df_full_none_old = pd.read_pickle("df_full_none_old.p")
+#df_full, df_full_none = utils.add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old)
+#del df_full_old, df_full_none_old
 gc.collect()
 
 ### Feature engineering on predicted basket
@@ -134,7 +130,7 @@ df_test_none = utils.get_df_none_add(df_test_none, mult_none_cv)
 gc.collect()
 
 # Sample by user_id ----------------------------------------
-valid_fold = 20
+valid_fold = 10
 
 # Modeling -----------------------------------
 # TODO split on order_id
@@ -154,7 +150,8 @@ print("Training model")
 # , params= {'bin_construct_sample_cnt': 10**10}
 lgb_train = lgb.Dataset(X_train, label=y_train)
 lgb_valid = lgb.Dataset(X_valid, label=y_valid)
-param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05, 'verbose': 0}
+param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05, 'verbose': 0, 'num_leaves':8,
+        'min_sum_hessian_in_leaf':512}
 model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=50)
 #lgb.plot_importance(model_gbm, importance_type="gain")
 #feature_importance = pd.DataFrame(model_gbm.feature_name())
@@ -186,8 +183,6 @@ model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_t
 # lgb.plot_importance(model_gbm_none, importance_type="gain")
 
 gc.collect()
-# Predict and submit -------------------------------------------------------------
-print('Predict and submit')
 
 print("Score estimation")
 start = time.time()
@@ -196,6 +191,9 @@ df_valid_pred["group"] = df_valid_pred["user_id"].mod(cpu_count()*3)
 print(utils.compute_fscore(df_valid, utils.applyParallel(df_valid_pred.groupby("group"), utils.filter_maximize_expectation)))
 end = time.time()
 print("Le temps d'exécution :" + str(end - start))
+
+print("Train on full data now!")
+
 
 print("Generate submission")
 df_test_pred = utils.get_df_pred(df_test, X_test, df_test_none, X_test_none, model_gbm, model_gbm_none)
