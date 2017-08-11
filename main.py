@@ -119,9 +119,8 @@ gc.collect()
 
 ### Feature engineering on predicted basket
 print("Feature engineering on predicted basket")
-param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0,
-         'num_leaves': 8, 'min_sum_hessian_in_leaf': 512}
-mult_none_cv = utils.get_mult_none_cv(df_full, df_test, param, nfold=5)
+param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0}
+mult_none_cv = utils.get_mult_none_cv(df_full, df_test, param, early_stopping_rounds=150, nfold=5)
 
 df_full_none = utils.get_df_none_add(df_full_none, mult_none_cv)
 df_test_none = utils.get_df_none_add(df_test_none, mult_none_cv)
