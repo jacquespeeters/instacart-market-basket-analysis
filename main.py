@@ -33,14 +33,22 @@ print("Sample by user_id")
 user_id = orders["user_id"].unique()
 np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=5000, replace=False).tolist()
-#orders = orders.query("user_id == @sample_user_id")
+orders = orders.query("user_id == @sample_user_id")
 
 ###
 print("Add user_id to order_products__XXX ")
 order_prior = pd.merge(orders, order_prior, on=["order_id"])
 order_train = pd.merge(orders, order_train, on=["order_id"])
 
-# Add last_basket_size
+print("Add order_size to order_prior")
+order_stat = order_prior.groupby('order_id').agg({'order_id': 'size'}) \
+    .rename(columns={'order_id': 'order_size'}).reset_index()
+order_prior = pd.merge(order_prior, order_stat, on='order_id')
+order_prior['add_to_cart_order_inverted'] = order_prior.order_size - order_prior.add_to_cart_order
+order_prior['add_to_cart_order_relative'] = order_prior.add_to_cart_order / order_prior.order_size
+del order_stat
+
+print("Add last_basket_size to orders ")
 last_basket_size = order_prior.groupby(["user_id", "order_number_reverse"]).size().\
     rename("last_basket_size").reset_index()
 last_basket_size["order_number_reverse"] = last_basket_size["order_number_reverse"] - 1
@@ -120,7 +128,7 @@ gc.collect()
 ### Feature engineering on predicted basket
 print("Feature engineering on predicted basket")
 param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0}
-mult_none_cv = utils.get_mult_none_cv(df_full, df_test, param, early_stopping_rounds=150, nfold=5)
+mult_none_cv = utils.get_mult_none_cv(df_full, df_test, param, early_stopping_rounds=50, nfold=5)
 
 df_full_none = utils.get_df_none_add(df_full_none, mult_none_cv)
 df_test_none = utils.get_df_none_add(df_test_none, mult_none_cv)
@@ -143,17 +151,20 @@ to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name","depa
 
 X_train = df_train.drop(to_drop + ["reordered"], axis=1)
 X_valid = df_valid.drop(to_drop + ["reordered"], axis=1)
+X_full = df_full.drop(to_drop + ["reordered"], axis=1)
 X_test = df_test.drop(to_drop + ["reordered"], axis=1)
 y_train = df_train["reordered"]
 y_valid = df_valid["reordered"]
+y_full = df_full["reordered"]
 
 print("Training model")
 # , params= {'bin_construct_sample_cnt': 10**10}
 lgb_train = lgb.Dataset(X_train, label=y_train)
 lgb_valid = lgb.Dataset(X_valid, label=y_valid)
+
 param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05, 'verbose': 0, 'num_leaves':8,
         'min_sum_hessian_in_leaf':512}
-model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=50)
+model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=100)
 #lgb.plot_importance(model_gbm, importance_type="gain")
 #feature_importance = pd.DataFrame(model_gbm.feature_name())
 #feature_importance.columns = ["Feature"]
@@ -172,15 +183,17 @@ to_drop_none = ["order_id", "user_id", "eval_set", "date"]
 X_train_none = df_train_none.drop(to_drop_none + ["reordered"], axis=1)
 X_valid_none = df_valid_none.drop(to_drop_none + ["reordered"], axis=1)
 X_test_none = df_test_none.drop(to_drop_none + ["reordered"], axis=1)
+X_full_none = df_full_none.drop(to_drop_none + ["reordered"], axis=1)
 y_train_none = df_train_none["reordered"]
 y_valid_none = df_valid_none["reordered"]
+y_full_none = df_full_none["reordered"]
 
 print("\n\nTraining model none")
 lgb_train_none = lgb.Dataset(X_train_none, label=y_train_none, max_bin=100)
 lgb_valid_none = lgb.Dataset(X_valid_none, label=y_valid_none, max_bin=100)
 param_none = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05,\
               'num_leaves':3, 'min_data_in_leaf':500, 'verbose': 0}
-model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=50)
+model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=100)
 # lgb.plot_importance(model_gbm_none, importance_type="gain")
 
 gc.collect()
@@ -194,12 +207,16 @@ end = time.time()
 print("Le temps d'exécution :" + str(end - start))
 
 print("Train on full data now!")
+lgb_full = lgb.Dataset(X_full, label=y_full)
+model_gbm = lgb.train(param, lgb_full, model_gbm.best_iteration, verbose_eval=100)
 
+lgb_full_none = lgb.Dataset(X_full_none, label=y_full_none, max_bin=100)
+model_gbm_none = lgb.train(param_none, lgb_full_none, model_gbm_none.best_iteration, verbose_eval=100)
 
 print("Generate submission")
 df_test_pred = utils.get_df_pred(df_test, X_test, df_test_none, X_test_none, model_gbm, model_gbm_none)
 df_test_pred["group"] = df_test_pred["user_id"].mod(cpu_count()*3)
-# utils.applyParallel(df_test_pred.groupby("group"), filter_optimised_pred).\
+# utils.applyParallel(df_test_pred.groupby("group"), utils.filter_optimised_pred).\
 sub = utils.applyParallel(df_test_pred.groupby("group"), utils.filter_maximize_expectation).\
     groupby("order_id")["product_id"].\
     apply(lambda col: col.astype(str).str.cat(sep=' ')).rename("products").reset_index()

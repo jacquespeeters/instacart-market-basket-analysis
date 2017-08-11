@@ -373,7 +373,9 @@ def get_users_products(order_prior):
     users_products = order_prior. \
         groupby(["user_id", "product_id"]). \
         agg({'reordered': {'up_nb_reordered': "size"}, \
-             'add_to_cart_order': {'up_mean_add_to_cart_order': "mean"}, \
+             'add_to_cart_order': {'up_add_to_cart_order_mean': "mean"}, \
+             'add_to_cart_order_relative': {'up_add_to_cart_order_relative_mean': "mean"}, \
+             'add_to_cart_order_inverted': {'up_add_to_cart_order_inverted_mean': "mean"}, \
              'order_number_reverse': {'up_last_order_number': "min", 'up_first_order_number': "max"}, \
              'date': {'up_last_order_date': "min", 'up_first_date_number': "max"}, \
              'UP_date_strike': {"UP_date_strike": "sum"}, \
@@ -659,6 +661,39 @@ def groupby_optimised_pred(group):
         res = group_none
 
     # if (none_gain > group_no_none["pred"].values[0] + 0.11): #Worsen score, need to understand why
+    #    res = group_none
+
+    return res
+
+
+def groupby_optimised_pred(group):
+    group_none = group.iloc[0:1]
+    none_gain = group_none["pred"].values[0]
+    group_no_none = group.iloc[1:]
+    group_no_none["precision"] = group_no_none["pred"].expanding().mean()
+    basket_size = group_no_none["pred"].sum() #0.75 #- 0.10 # Empirically found, could be finest, f-score is asymetric
+    group_no_none["recall"] = group_no_none["pred"].expanding().sum() / basket_size
+    group_no_none["f_score"] = (2 * group_no_none["precision"] * group_no_none["recall"]) / (group_no_none["precision"] + group_no_none["recall"])
+    f_score = group_no_none["f_score"].max()
+
+    max_index = np.where(group_no_none["f_score"] == f_score)[0][0]
+    group_no_none = group_no_none[0:(max_index+1)] # Could be (max_index+k) with k>1 if the limit is risky maybe?
+
+    # f_score_none is the expected f_score if we add none
+    precision_none = (group_no_none["pred"].sum()) / (group_no_none.shape[0] + 1)
+    recall_none = group_no_none.iloc[-1]["recall"]
+    f_score_none = (2 * precision_none * recall_none) / (precision_none + recall_none)
+
+    res = group_no_none #.drop(["precision", "recall", "f_score"], axis=1)
+    # Add none if it's worth it
+    # 0.07 and not 0 because f_score is under-estimated, could be finest
+    if none_gain - (f_score - f_score_none) > 0.07:
+        res = pd.concat([res, group_none])
+
+    if (none_gain > f_score + 0.0):
+        res = group_none
+
+    #if (none_gain > group_no_none["pred"].values[0] + 0.11): #Worsen score, need to understand why
     #    res = group_none
 
     return res
