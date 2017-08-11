@@ -110,7 +110,7 @@ print("Create dataset which we'll learn on for None")
 df_full_none = utils.get_df_none(orders.query("eval_set == 'train'"), order_none, users_fe)
 df_test_none = utils.get_df_none(orders.query("eval_set == 'test'"), order_none, users_fe)
 
-print("Add old dataset")
+#print("Add old dataset")
 #df_full_old = pd.read_pickle("df_full_old.p")
 #df_full_none_old = pd.read_pickle("df_full_none_old.p")
 #df_full, df_full_none = utils.add_old_orders(df_full, df_full_none, df_full_old, df_full_none_old)
@@ -119,7 +119,9 @@ gc.collect()
 
 ### Feature engineering on predicted basket
 print("Feature engineering on predicted basket")
-mult_none_cv = utils.get_mult_none_cv(df_full, df_test, nfold=5)
+param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0,
+         'num_leaves': 8, 'min_sum_hessian_in_leaf': 512}
+mult_none_cv = utils.get_mult_none_cv(df_full, df_test, param, nfold=5)
 
 df_full_none = utils.get_df_none_add(df_full_none, mult_none_cv)
 df_test_none = utils.get_df_none_add(df_test_none, mult_none_cv)

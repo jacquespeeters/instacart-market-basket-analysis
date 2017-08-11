@@ -552,7 +552,7 @@ def get_mult_none(df, X_df, model_gbm):
     return df_pred
 
 
-def get_mult_none_cv(df_full, df_test, nfold=5):
+def get_mult_none_cv(df_full, df_test, param, nfold=5):
     to_drop = ["order_id", "user_id", "eval_set", "product_id", "product_name", "department", "aisle", \
                "order_number_reverse", "date", "UP_days_no-reordered"]
 
@@ -572,8 +572,6 @@ def get_mult_none_cv(df_full, df_test, nfold=5):
 
         lgb_train = lgb.Dataset(X_train, label=y_train)
         lgb_valid = lgb.Dataset(X_valid, label=y_valid)
-        param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0,
-                 'num_leaves': 8, 'min_sum_hessian_in_leaf': 512}
         model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=250,
                               verbose_eval=100)
         res.append(get_mult_none(df_valid, X_valid, model_gbm))
