@@ -9,7 +9,7 @@ import time
 
 if __name__ == '__main__':
     # Read data -----------------------------
-    aisles, departments, order_prior, order_train, orders, product2vec = utils.read_data()
+    aisles, departments, order_prior, order_train, orders, products, product2vec = utils.read_data()
 
     print("Sample by user_id")
     user_id = orders["user_id"].unique()
