@@ -216,8 +216,7 @@ def read_data():
     # pickle.dump(orders, open("orders.p", "wb"))
     orders = pickle.load(open("orders.p", "rb"))
     product2vec = pickle.load(open("product2vec.p", "rb"))
-    product2vec = pd.read_csv("./data/product_embeddings.csv").drop(["product_name", "aisle_id", "department_id"],
-                                                                    axis=1)
+    #product2vec = pd.read_csv("./data/product_embeddings.csv").drop(["product_name", "aisle_id", "department_id"], axis=1)
     return aisles, departments, order_prior, order_train, orders, products, product2vec
 
 # Fucking slow :/ - So i pickled it
