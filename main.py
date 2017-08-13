@@ -13,19 +13,7 @@ from multiprocessing import Pool, cpu_count
 # https://www.kaggle.com/paulantoine/light-gbm-benchmark-0-3692/code
 
 # Read data -----------------------------
-aisles = pd.read_csv("./data/aisles.csv")
-departments = pd.read_csv("./data/departments.csv")
-order_prior = pd.read_csv("./data/order_products__prior.csv")
-order_train = pd.read_csv("./data/order_products__train.csv")
-orders = pd.read_csv("./data/orders.csv")
-products = pd.read_csv("./data/products.csv")
-
-#orders = orders.groupby("user_id").\
-#    apply(utils.add_fe_to_orders)
-
-#pickle.dump(orders, open("orders.p", "wb"))
-orders = pickle.load(open("orders.p", "rb"))
-product2vec = pickle.load(open("product2vec.p", "rb"))
+aisles, departments, order_prior, order_train, orders, products, product2vec = utils.read_data()
 
 # Data wrangling ----------------------------------------------------
 
@@ -35,7 +23,7 @@ np.random.seed(seed=7)
 sample_user_id = np.random.choice(user_id, size=5000, replace=False).tolist()
 orders = orders.query("user_id == @sample_user_id")
 
-###
+### Feature engineering start here
 print("Add user_id to order_products__XXX ")
 order_prior = pd.merge(orders, order_prior, on=["order_id"])
 order_train = pd.merge(orders, order_train, on=["order_id"])
@@ -127,7 +115,7 @@ gc.collect()
 
 ### Feature engineering on predicted basket
 print("Feature engineering on predicted basket")
-param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.1, 'verbose': 0}
+param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate': 0.025, 'verbose': 0}
 mult_none_cv = utils.get_mult_none_cv(df_full, df_test, param, early_stopping_rounds=50, nfold=5)
 
 df_full_none = utils.get_df_none_add(df_full_none, mult_none_cv)
@@ -162,14 +150,11 @@ print("Training model")
 lgb_train = lgb.Dataset(X_train, label=y_train)
 lgb_valid = lgb.Dataset(X_valid, label=y_valid)
 
-param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.05, 'verbose': 0, 'num_leaves':8,
-        'min_sum_hessian_in_leaf':512}
+param = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rate':0.025, 'verbose': 0}
 model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=150, verbose_eval=100)
 #lgb.plot_importance(model_gbm, importance_type="gain")
-#feature_importance = pd.DataFrame(model_gbm.feature_name())
-#feature_importance.columns = ["Feature"]
-#feature_importance["Importance_gain"] = model_gbm.feature_importance(importance_type='gain')
-# feature_importance = feature_importance.sort("Importance_gain")
+# feature_importance = pd.DataFrame({'feature':model_gbm.feature_name(), 'importances': model_gbm.feature_importance(importance_type='gain')})
+# feature_importance.sort_values('importances')
 # feature_importance.head()
 
 gc.collect()
@@ -195,6 +180,8 @@ param_none = {'objective': 'binary', 'metric': ['binary_logloss'], 'learning_rat
               'num_leaves':3, 'min_data_in_leaf':500, 'verbose': 0}
 model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none], early_stopping_rounds=150, verbose_eval=100)
 # lgb.plot_importance(model_gbm_none, importance_type="gain")
+#feature_importance = pd.DataFrame({'feature':model_gbm_none.feature_name(), 'importances': model_gbm_none.feature_importance(importance_type='gain')})
+#feature_importance.sort_values('importances')
 
 gc.collect()
 
@@ -206,15 +193,51 @@ print(utils.compute_fscore(df_valid, utils.applyParallel(df_valid_pred.groupby("
 end = time.time()
 print("Le temps d'exécution :" + str(end - start))
 
-print("Train on full data now!")
-lgb_full = lgb.Dataset(X_full, label=y_full)
-model_gbm = lgb.train(param, lgb_full, model_gbm.best_iteration, verbose_eval=100)
 
-lgb_full_none = lgb.Dataset(X_full_none, label=y_full_none, max_bin=100)
-model_gbm_none = lgb.train(param_none, lgb_full_none, model_gbm_none.best_iteration, verbose_eval=100)
+print("Ensembling")
+def get_ensembling(to_drop, to_drop_none, nfold = 20, n_ensemble=5, early_stopping_rounds=150):
+    df_test_pred = []
+    for fold in range(nfold):
+        if fold < n_ensemble:
+            print("Folder: " + str(fold))
+            df_valid = df_full.query("(user_id % @nfold) == @fold")
+            df_train = df_full.query("(user_id % @nfold) !=  @fold")
+            X_train = df_train.drop(to_drop + ["reordered"], axis=1)
+            X_valid = df_valid.drop(to_drop + ["reordered"], axis=1)
+            X_test = df_test.drop(to_drop + ["reordered"], axis=1)
+            y_train = df_train["reordered"]
+            y_valid = df_valid["reordered"]
+
+            lgb_train = lgb.Dataset(X_train, label=y_train)
+            lgb_valid = lgb.Dataset(X_valid, label=y_valid)
+            model_gbm = lgb.train(param, lgb_train, 100000, valid_sets=[lgb_train, lgb_valid], early_stopping_rounds=early_stopping_rounds,
+                                  verbose_eval=100)
+
+            df_valid_none = df_full_none.query("(user_id % @nfold) == @fold")
+            df_train_none = df_full_none.query("(user_id % @nfold) !=  @fold")
+            X_train_none = df_train_none.drop(to_drop_none + ["reordered"], axis=1)
+            X_valid_none = df_valid_none.drop(to_drop_none + ["reordered"], axis=1)
+            X_test_none = df_test_none.drop(to_drop_none + ["reordered"], axis=1)
+            y_train_none = df_train_none["reordered"]
+            y_valid_none = df_valid_none["reordered"]
+
+            lgb_train_none = lgb.Dataset(X_train_none, label=y_train_none)
+            lgb_valid_none = lgb.Dataset(X_valid_none, label=y_valid_none)
+            model_gbm_none = lgb.train(param_none, lgb_train_none, 100000, valid_sets=[lgb_train_none, lgb_valid_none],
+                                       early_stopping_rounds=early_stopping_rounds, verbose_eval=100)
+
+            df_test_pred.append(utils.get_df_pred(df_test, X_test, df_test_none, X_test_none, model_gbm, model_gbm_none))
+            del lgb_train, lgb_valid, model_gbm, lgb_train_none, lgb_valid_none, model_gbm_none
+            gc.collect()
+
+    df_test_pred = pd.concat(df_test_pred)
+    df_test_pred = df_test_pred.groupby(["order_id", "user_id", "product_id"]).mean().reset_index()
+    return df_test_pred
+
+df_test_pred = get_ensembling(to_drop, to_drop_none, nfold=20, n_ensemble=10, early_stopping_rounds=150)
 
 print("Generate submission")
-df_test_pred = utils.get_df_pred(df_test, X_test, df_test_none, X_test_none, model_gbm, model_gbm_none)
+#df_test_pred = utils.get_df_pred(df_test, X_test, df_test_none, X_test_none, model_gbm, model_gbm_none)
 df_test_pred["group"] = df_test_pred["user_id"].mod(cpu_count()*3)
 # utils.applyParallel(df_test_pred.groupby("group"), utils.filter_optimised_pred).\
 sub = utils.applyParallel(df_test_pred.groupby("group"), utils.filter_maximize_expectation).\

@@ -9,20 +9,7 @@ import time
 
 if __name__ == '__main__':
     # Read data -----------------------------
-    # TODO function to read csv
-    aisles = pd.read_csv("./data/aisles.csv")
-    departments = pd.read_csv("./data/departments.csv")
-    order_prior = pd.read_csv("./data/order_products__prior.csv")
-    order_train = pd.read_csv("./data/order_products__train.csv")
-    orders = pd.read_csv("./data/orders.csv")
-    products = pd.read_csv("./data/products.csv")
-
-    #orders = orders.groupby("user_id").\
-    #    apply(add_fe_to_orders)
-
-    #pickle.dump(orders, open("orders.p", "wb"))
-    orders = pickle.load(open("orders.p", "rb"))
-    product2vec = pickle.load(open("product2vec.p", "rb"))
+    aisles, departments, order_prior, order_train, orders, product2vec = utils.read_data()
 
     print("Sample by user_id")
     user_id = orders["user_id"].unique()

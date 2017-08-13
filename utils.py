@@ -3,6 +3,7 @@ import numpy as np
 from multiprocessing import Pool, cpu_count
 import os.path
 import gc
+import pickle
 
 # Thanks to https://www.kaggle.com/onodera/multilabel-fscore
 def multilabel_fscore(y_true, y_pred):
@@ -201,6 +202,24 @@ def grid_search(lgb_train, lgb_valid, param_grid, early_stopping_rounds=150):
     return data
 
 #########
+def read_data():
+    aisles = pd.read_csv("./data/aisles.csv")
+    departments = pd.read_csv("./data/departments.csv")
+    order_prior = pd.read_csv("./data/order_products__prior.csv")
+    order_train = pd.read_csv("./data/order_products__train.csv")
+    orders = pd.read_csv("./data/orders.csv")
+    products = pd.read_csv("./data/products.csv")
+
+    # orders = orders.groupby("user_id").\
+    #    apply(utils.add_fe_to_orders)
+
+    # pickle.dump(orders, open("orders.p", "wb"))
+    orders = pickle.load(open("orders.p", "rb"))
+    product2vec = pickle.load(open("product2vec.p", "rb"))
+    product2vec = pd.read_csv("./data/product_embeddings.csv").drop(["product_name", "aisle_id", "department_id"],
+                                                                    axis=1)
+    return aisles, departments, order_prior, order_train, orders, products, product2vec
+
 # Fucking slow :/ - So i pickled it
 # Way faster & easier with dplyr...
 def add_fe_to_orders(group):
