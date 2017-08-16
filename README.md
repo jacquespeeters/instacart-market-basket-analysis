@@ -22,6 +22,20 @@ python3 create_old_orders.py
 python3 main.py
 ```
 
+## Requierements
+
+```
+gensim==2.3.0
+google-compute-engine==2.4.1
+lightgbm==2.0.5
+llvmlite==0.19.0
+numba==0.34.0
+numpy==1.13.1
+pandas==0.20.3
+scikit-learn==0.18.2
+scipy==0.19.1
+seaborn==0.8
+```
 ## Memo perso pour gcloud
 Tuto jupyter sur gcloud
 https://gist.github.com/valentina-s/79d2443425a921ebfc5e3379ed1ea52a
