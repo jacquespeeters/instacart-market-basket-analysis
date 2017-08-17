@@ -36,6 +36,35 @@ scikit-learn==0.18.2
 scipy==0.19.1
 seaborn==0.8
 ```
+
+## Main design of the solution
+
+### Strongest feature
+My strongest feature is a binary encoding of the purchase pattern of products by users. Binary encoding is a nice way to encode a series of 1/0, isn't it?
+``` 
+order_prior["UP_order_strike"] = 1 / 2 ** (order_prior["order_number_reverse"])
+
+users_products = order_prior. \
+    groupby(["user_id", "product_id"]). \
+    agg({..., \
+         'UP_order_strike': {"UP_order_strike": "sum"}})
+```
+
+### None handling
+I created a model specifically to predict None.
+
+The main idea is to re-use feature engineering already done for the main model (like the user profile) and to create new features based on the prediction of the main model. 
+
+Here is the piece of code highlighting the new features created in order to predict None.
+```
+df_pred = df_pred.groupby(["order_id", "user_id"]). \
+    agg({'pred_minus': {'pred_none_prod': "prod"}, \
+         'pred': {'pred_basket_sum': "sum", 'pred_basket_std':'std'}})
+```
+Obviously it is done in a cross-validation way in order to avoid leakage.
+
+It gave me a nice boost +0.1 overall
+
 ## Memo perso pour gcloud
 Tuto jupyter sur gcloud
 https://gist.github.com/valentina-s/79d2443425a921ebfc5e3379ed1ea52a
