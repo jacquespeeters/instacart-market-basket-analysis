@@ -61,9 +61,9 @@ df_pred = df_pred.groupby(["order_id", "user_id"]). \
     agg({'pred_minus': {'pred_none_prod': "prod"}, \
          'pred': {'pred_basket_sum': "sum", 'pred_basket_std':'std'}})
 ```
-Obviously it is done in a cross-validation way in order to avoid leakage.
+Obviously it is done in a cross-validation way in order to avoid any leakage.
 
-It gave me a nice boost +0.1 overall
+It gave me a nice overall boost of +0.01 
 
 ## Memo perso pour gcloud
 Tuto jupyter sur gcloud
